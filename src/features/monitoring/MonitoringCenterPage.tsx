@@ -14,7 +14,6 @@ import type { TFunction } from 'i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { DropdownMenu, type DropdownMenuItem } from '@/components/ui/DropdownMenu';
 import {
@@ -77,6 +76,7 @@ import {
 } from '@/features/monitoring/components/AccountOverviewCard';
 import { ApiKeySummaryPanel } from '@/features/monitoring/components/ApiKeySummaryPanel';
 import { MonitoringCustomRangeModal } from '@/features/monitoring/components/MonitoringCustomRangeModal';
+import { MonitoringPriceModal } from '@/features/monitoring/components/MonitoringPriceModal';
 import {
   PaginationControls,
   RecentPattern,
@@ -258,8 +258,6 @@ const parsePriceValue = (value: string) => {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 };
-
-const formatPriceUnit = (value: number) => `$${value.toFixed(4)}/1M`;
 
 const buildRealtimeMetaText = (row: MonitoringEventRow) => {
   const text = `${row.endpointMethod} ${row.endpointPath}`.trim();
@@ -2240,125 +2238,22 @@ const EMPTY_ACCOUNT_AUTH_STATE: MonitoringAccountAuthState = {
         onEndChange={handleCustomDraftEndChange}
       />
 
-      <Modal
+      <MonitoringPriceModal
         open={isPriceModalOpen}
         onClose={() => setIsPriceModalOpen(false)}
-        title={t('usage_stats.model_price_settings')}
-        width={860}
-        className={styles.monitorModal}
-      >
-        <div className={styles.priceEditor}>
-          <div className={styles.priceGrid}>
-            <div className={`${styles.priceField} ${styles.priceFieldModel}`}>
-              <label>{t('usage_stats.model_name')}</label>
-              <Select
-                value={priceModel}
-                options={priceModelOptions}
-                onChange={handlePriceModelChange}
-                ariaLabel={t('usage_stats.model_name')}
-              />
-            </div>
-            <div className={`${styles.priceField} ${styles.priceFieldPrompt}`}>
-              <label>{`${t('usage_stats.model_price_prompt')} ($/1M)`}</label>
-              <Input
-                type="number"
-                value={priceDraft.prompt}
-                onChange={(event) => handlePriceDraftChange('prompt', event.target.value)}
-                placeholder="0.0000"
-                step="0.0001"
-              />
-            </div>
-            <div className={`${styles.priceField} ${styles.priceFieldCompletion}`}>
-              <label>{`${t('usage_stats.model_price_completion')} ($/1M)`}</label>
-              <Input
-                type="number"
-                value={priceDraft.completion}
-                onChange={(event) => handlePriceDraftChange('completion', event.target.value)}
-                placeholder="0.0000"
-                step="0.0001"
-              />
-            </div>
-            <div className={`${styles.priceField} ${styles.priceFieldCache}`}>
-              <label>{`${t('usage_stats.model_price_cache')} ($/1M)`}</label>
-              <Input
-                type="number"
-                value={priceDraft.cache}
-                onChange={(event) => handlePriceDraftChange('cache', event.target.value)}
-                placeholder="0.0000"
-                step="0.0001"
-              />
-            </div>
-          </div>
-
-          <div className={styles.priceActionsBar}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleSyncModelPrices}
-              loading={syncingPrices}
-            >
-              {t('usage_stats.model_price_sync')}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={resetPriceEditor}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleSavePrice} disabled={!priceModel}>
-              {t('common.save')}
-            </Button>
-          </div>
-        </div>
-
-        <div className={styles.savedPricesList}>
-          <div className={styles.savedPricesHeader}>{t('usage_stats.saved_prices')}</div>
-          {savedPriceEntries.length > 0 ? (
-            <div className={styles.savedPricesTableWrap}>
-              <table className={styles.savedPricesTable}>
-                <thead>
-                  <tr>
-                    <th>{t('usage_stats.model_name')}</th>
-                    <th>{t('usage_stats.model_price_prompt')}</th>
-                    <th>{t('usage_stats.model_price_completion')}</th>
-                    <th>{t('usage_stats.model_price_cache')}</th>
-                    <th>{t('common.action')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {savedPriceEntries.map(([model, price]) => (
-                    <tr key={model}>
-                      <td className={`${styles.monoCell} ${styles.savedPricesModelCell}`}>
-                        {model}
-                      </td>
-                      <td>{formatPriceUnit(price.prompt)}</td>
-                      <td>{formatPriceUnit(price.completion)}</td>
-                      <td>{formatPriceUnit(price.cache)}</td>
-                      <td className={styles.savedPricesActionsCell}>
-                        <div className={styles.savedPricesActions}>
-                          <button
-                            type="button"
-                            className={styles.inlineActionButton}
-                            onClick={() => handlePriceModelChange(model)}
-                          >
-                            {t('common.edit')}
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.inlineActionButton}
-                            onClick={() => handleDeletePrice(model)}
-                          >
-                            {t('common.delete')}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className={styles.emptyBlockSmall}>{t('usage_stats.model_price_empty')}</div>
-          )}
-        </div>
-      </Modal>
+        priceModel={priceModel}
+        priceModelOptions={priceModelOptions}
+        priceDraft={priceDraft}
+        savedPriceEntries={savedPriceEntries}
+        syncingPrices={syncingPrices}
+        t={t}
+        onPriceModelChange={handlePriceModelChange}
+        onPriceDraftChange={handlePriceDraftChange}
+        onSyncModelPrices={handleSyncModelPrices}
+        onResetPriceEditor={resetPriceEditor}
+        onSavePrice={handleSavePrice}
+        onDeletePrice={handleDeletePrice}
+      />
     </div>
   );
 }
