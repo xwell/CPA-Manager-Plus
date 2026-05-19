@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { IconKey, IconBot, IconFileText, IconSatellite } from '@/components/ui/icons';
 import { useAuthStore, useConfigStore, useModelsStore } from '@/stores';
 import { apiKeysApi, providersApi, authFilesApi } from '@/services/api';
+import { VersionCard } from './dashboard/components/VersionCard';
+import { UsageMetricsCard } from './dashboard/components/UsageMetricsCard';
+import { CollectorStatusCard } from './dashboard/components/CollectorStatusCard';
+import { HealthAlertsCard } from './dashboard/components/HealthAlertsCard';
+import { useDashboardUsageSummary } from './dashboard/hooks/useDashboardUsageSummary';
 import styles from './DashboardPage.module.scss';
 
 interface QuickStat {
@@ -28,7 +33,9 @@ export function DashboardPage() {
   const serverVersion = useAuthStore((state) => state.serverVersion);
   const serverBuildDate = useAuthStore((state) => state.serverBuildDate);
   const apiBase = useAuthStore((state) => state.apiBase);
+  const managementKey = useAuthStore((state) => state.managementKey);
   const config = useConfigStore((state) => state.config);
+  const usageSummary = useDashboardUsageSummary();
 
   const models = useModelsStore((state) => state.models);
   const modelsLoading = useModelsStore((state) => state.loading);
@@ -274,24 +281,49 @@ export function DashboardPage() {
               }`}
             />
             <span className={styles.pillText}>
-              {serverVersion
-                ? `v${serverVersion.trim().replace(/^[vV]+/, '')}`
-                : t(
-                    connectionStatus === 'connected'
-                      ? 'common.connected'
-                      : connectionStatus === 'connecting'
-                        ? 'common.connecting'
-                        : 'common.disconnected'
-                  )}
+              {t(
+                connectionStatus === 'connected'
+                  ? 'common.connected'
+                  : connectionStatus === 'connecting'
+                    ? 'common.connecting'
+                    : 'common.disconnected'
+              )}
             </span>
           </div>
-          {serverBuildDate && (
-            <span className={styles.buildDate}>
-              {new Date(serverBuildDate).toLocaleDateString(i18n.language)}
-            </span>
-          )}
         </div>
       </section>
+
+      <VersionCard
+        appVersion={__APP_VERSION__ || t('dashboard.version_unknown')}
+        apiVersion={serverVersion || t('dashboard.version_unknown')}
+        apiBase={apiBase || ''}
+        serverBuildDate={serverBuildDate || undefined}
+        connectionStatus={connectionStatus}
+      />
+
+      {usageSummary.enabled && (
+        <section className={styles.usageSection}>
+          <div className={styles.usageCardGrid}>
+            <UsageMetricsCard
+              summary={usageSummary.summary}
+              topModels={usageSummary.topModels}
+              loading={usageSummary.loading}
+              error={usageSummary.error}
+              lastRefreshedAt={usageSummary.lastRefreshedAt}
+            />
+            <CollectorStatusCard
+              enabled={usageSummary.enabled}
+              serviceBase={usageSummary.serviceBase}
+              managementKey={managementKey}
+            />
+            <HealthAlertsCard
+              enabled={usageSummary.enabled}
+              loading={usageSummary.loading}
+              recentFailures={usageSummary.recentFailures}
+            />
+          </div>
+        </section>
+      )}
 
       {/* Bento stats grid */}
       <section className={styles.statsSection}>

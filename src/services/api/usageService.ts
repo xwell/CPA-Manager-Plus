@@ -149,6 +149,68 @@ export interface UsageExportResponse {
   filename: string;
 }
 
+export interface DashboardSummaryWindow {
+  today_start_ms: number;
+  now_ms: number;
+  rolling_30m_start_ms: number;
+}
+
+export interface DashboardTodaySummary {
+  total_calls: number;
+  success_calls: number;
+  failure_calls: number;
+  success_rate: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  average_latency_ms: number | null;
+  zero_token_calls: number;
+}
+
+export interface DashboardRollingSummary {
+  rpm: number;
+  tpm: number;
+  total_calls: number;
+  total_tokens: number;
+}
+
+export interface DashboardTopModel {
+  model: string;
+  calls: number;
+  tokens: number;
+  cost: number;
+  success_rate: number;
+}
+
+export interface DashboardRecentFailure {
+  timestamp_ms: number;
+  model: string;
+  api_key_hash: string;
+  source_hash: string;
+  auth_index: string;
+  endpoint: string;
+  duration_ms: number | null;
+}
+
+export interface DashboardSummaryResponse {
+  generated_at_ms: number;
+  window: DashboardSummaryWindow;
+  today: DashboardTodaySummary;
+  rolling_30m: DashboardRollingSummary;
+  top_models_today: DashboardTopModel[];
+  recent_failures: DashboardRecentFailure[];
+}
+
+export interface DashboardSummaryParams {
+  todayStartMs: number;
+  nowMs?: number;
+  topModels?: number;
+  recentFailures?: number;
+}
+
 const USAGE_SERVICE_TIMEOUT_MS = 15 * 1000;
 const USAGE_SERVICE_TRANSFER_TIMEOUT_MS = 60 * 1000;
 export const USAGE_SERVICE_ID = 'cpa-manager-plus';
@@ -473,6 +535,33 @@ export const usageServiceApi = {
         {
           timeout: USAGE_SERVICE_TRANSFER_TIMEOUT_MS,
           headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+};
+
+export const dashboardApi = {
+  getSummary: async (
+    base: string,
+    managementKey: string | undefined,
+    params: DashboardSummaryParams
+  ): Promise<DashboardSummaryResponse> => {
+    return withUsageServiceError(async () => {
+      const query: Record<string, number> = {
+        today_start_ms: params.todayStartMs,
+      };
+      if (params.nowMs !== undefined) query.now_ms = params.nowMs;
+      if (params.topModels !== undefined) query.top_models = params.topModels;
+      if (params.recentFailures !== undefined) query.recent_failures = params.recentFailures;
+
+      const response = await axios.get<DashboardSummaryResponse>(
+        buildUrl(base, '/v0/management/dashboard/summary'),
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+          params: query,
         }
       );
       return response.data;
