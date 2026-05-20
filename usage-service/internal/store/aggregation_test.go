@@ -76,6 +76,15 @@ func TestAggregateBetween(t *testing.T) {
 	if len(failures) != 1 || failures[0].Model != "gpt-b" || failures[0].TimestampMS != 1_500 {
 		t.Fatalf("failures = %#v", failures)
 	}
+
+	buckets, err := db.BucketTimelineBetween(context.Background(), 1_000, 2_000, 500)
+	if err != nil {
+		t.Fatalf("bucket timeline: %v", err)
+	}
+	if len(buckets) != 2 || buckets[0].BucketMS != 1_000 || buckets[0].Calls != 1 ||
+		buckets[1].BucketMS != 1_500 || buckets[1].Calls != 2 || buckets[1].Failure != 1 {
+		t.Fatalf("bucket timeline = %#v", buckets)
+	}
 }
 
 func aggregationEvent(

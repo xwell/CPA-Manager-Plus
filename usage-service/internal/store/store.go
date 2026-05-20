@@ -165,6 +165,10 @@ func (s *Store) HourlyTimelineBetween(ctx context.Context, fromMs, toMs int64) (
 	return s.UsageEvents.HourlyTimelineBetween(ctx, fromMs, toMs)
 }
 
+func (s *Store) BucketTimelineBetween(ctx context.Context, fromMs, toMs int64, bucketMs int64) ([]TimelinePoint, error) {
+	return s.UsageEvents.BucketTimelineBetween(ctx, fromMs, toMs, bucketMs)
+}
+
 func (s *Store) AggregateWithFilter(ctx context.Context, filter AnalyticsFilter) (Aggregate, error) {
 	return s.UsageEvents.AggregateWithFilter(ctx, filter)
 }

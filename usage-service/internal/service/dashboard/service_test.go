@@ -29,6 +29,10 @@ func TestSummaryEmptyStore(t *testing.T) {
 	if len(resp.TopModelsToday) != 0 || len(resp.RecentFailures) != 0 {
 		t.Fatalf("empty lists = %#v %#v", resp.TopModelsToday, resp.RecentFailures)
 	}
+	if len(resp.RequestHealth.Points) != healthTimelineBuckets || resp.RequestHealth.TotalCalls != 0 ||
+		resp.RequestHealth.BucketMS != healthTimelineBucketMs {
+		t.Fatalf("empty request health timeline = %#v", resp.RequestHealth)
+	}
 }
 
 func TestSummaryAggregatesCostsAndWindows(t *testing.T) {
@@ -97,6 +101,17 @@ func TestSummaryAggregatesCostsAndWindows(t *testing.T) {
 	}
 	if len(resp.HourlyActivity) != 24 || resp.HourlyActivity[0].Intensity != 1 {
 		t.Fatalf("hourly activity = %#v", resp.HourlyActivity)
+	}
+	if len(resp.RequestHealth.Points) != healthTimelineBuckets ||
+		resp.RequestHealth.TotalCalls != 3 ||
+		resp.RequestHealth.SuccessCalls != 2 ||
+		resp.RequestHealth.FailureCalls != 1 ||
+		math.Abs(resp.RequestHealth.SuccessRate-(2.0/3.0)) > 0.000001 {
+		t.Fatalf("request health timeline = %#v", resp.RequestHealth)
+	}
+	if resp.RequestHealth.Points[1].Calls != 1 || resp.RequestHealth.Points[5].Calls != 2 ||
+		resp.RequestHealth.Points[7].Tone != "future" {
+		t.Fatalf("request health timeline points = %#v", resp.RequestHealth.Points[:8])
 	}
 	if len(resp.TokenMix) != 4 || resp.TokenMix[0].Key != "input" ||
 		resp.TokenMix[0].Tokens != 1_000_000 {

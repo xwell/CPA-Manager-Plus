@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	defaultTopModels      = 5
-	defaultRecentFailures = 5
-	defaultHealthRows     = 5
-	rollingWindowMinutes  = 30
-	rollingWindowMs       = rollingWindowMinutes * 60 * 1000
-	hourWindowMs          = 60 * 60 * 1000
+	defaultTopModels       = 5
+	defaultRecentFailures  = 5
+	defaultHealthRows      = 5
+	rollingWindowMinutes   = 30
+	rollingWindowMs        = rollingWindowMinutes * 60 * 1000
+	hourWindowMs           = 60 * 60 * 1000
+	healthTimelineBucketMs = 10 * 60 * 1000
+	healthTimelineBuckets  = 24 * 6
 )
 
 type Service struct {
@@ -89,6 +91,30 @@ type HourlyActivityPoint struct {
 	Intensity float64 `json:"intensity"`
 }
 
+type RequestHealthTimelinePoint struct {
+	BucketMS    int64   `json:"bucket_ms"`
+	Calls       int64   `json:"calls"`
+	Tokens      int64   `json:"tokens"`
+	Success     int64   `json:"success"`
+	Failure     int64   `json:"failure"`
+	SuccessRate float64 `json:"success_rate"`
+	FailureRate float64 `json:"failure_rate"`
+	Tone        string  `json:"tone"`
+	Intensity   float64 `json:"intensity"`
+	Future      bool    `json:"future"`
+}
+
+type RequestHealthTimeline struct {
+	FromMS       int64                        `json:"from_ms"`
+	ToMS         int64                        `json:"to_ms"`
+	BucketMS     int64                        `json:"bucket_ms"`
+	SuccessCalls int64                        `json:"success_calls"`
+	FailureCalls int64                        `json:"failure_calls"`
+	TotalCalls   int64                        `json:"total_calls"`
+	SuccessRate  float64                      `json:"success_rate"`
+	Points       []RequestHealthTimelinePoint `json:"points"`
+}
+
 type TokenMixSegment struct {
 	Key    string  `json:"key"`
 	Tokens int64   `json:"tokens"`
@@ -146,6 +172,7 @@ type SummaryResponse struct {
 	ModelCostRank   []ModelCostRank       `json:"model_cost_rank"`
 	TrafficTimeline []TrafficPoint        `json:"traffic_timeline"`
 	HourlyActivity  []HourlyActivityPoint `json:"hourly_activity"`
+	RequestHealth   RequestHealthTimeline `json:"today_request_health_timeline"`
 	TokenMix        []TokenMixSegment     `json:"token_mix"`
 	ChannelHealth   []ChannelHealth       `json:"channel_health"`
 	FailureSources  []FailureSource       `json:"failure_sources"`
@@ -209,6 +236,11 @@ func (s *Service) Summary(ctx context.Context, p SummaryParams) (SummaryResponse
 	if err != nil {
 		return SummaryResponse{}, err
 	}
+	healthTimelineToMS := p.TodayStartMS + int64(healthTimelineBuckets)*healthTimelineBucketMs
+	healthTimelinePoints, err := s.store.BucketTimelineBetween(ctx, p.TodayStartMS, nowMS, healthTimelineBucketMs)
+	if err != nil {
+		return SummaryResponse{}, err
+	}
 	channelStats, err := s.store.ChannelModelStatsWithFilter(ctx, filter)
 	if err != nil {
 		return SummaryResponse{}, err
@@ -233,6 +265,7 @@ func (s *Service) Summary(ctx context.Context, p SummaryParams) (SummaryResponse
 		ModelCostRank:   buildModelCostRank(modelStats, prices, topLimit),
 		TrafficTimeline: trafficTimeline,
 		HourlyActivity:  buildHourlyActivity(trafficTimeline),
+		RequestHealth:   buildRequestHealthTimeline(p.TodayStartMS, healthTimelineToMS, nowMS, healthTimelinePoints),
 		TokenMix:        buildTokenMix(today),
 		ChannelHealth:   buildChannelHealth(channelStats, prices, defaultHealthRows),
 		FailureSources:  buildFailureSources(failureSources, defaultHealthRows),
@@ -333,6 +366,64 @@ func buildHourlyActivity(points []TrafficPoint) []HourlyActivityPoint {
 		})
 	}
 	return result
+}
+
+func buildRequestHealthTimeline(fromMS int64, toMS int64, nowMS int64, points []store.TimelinePoint) RequestHealthTimeline {
+	pointByBucket := make(map[int64]store.TimelinePoint, len(points))
+	var maxCalls int64
+	for _, point := range points {
+		pointByBucket[point.BucketMS] = point
+		if point.Calls > maxCalls {
+			maxCalls = point.Calls
+		}
+	}
+
+	result := RequestHealthTimeline{
+		FromMS:   fromMS,
+		ToMS:     toMS,
+		BucketMS: healthTimelineBucketMs,
+		Points:   make([]RequestHealthTimelinePoint, 0, healthTimelineBuckets),
+	}
+
+	for index := 0; index < healthTimelineBuckets; index++ {
+		bucketMS := fromMS + int64(index)*healthTimelineBucketMs
+		isFuture := bucketMS > nowMS
+		point := pointByBucket[bucketMS]
+		failureRate := rate(point.Failure, point.Calls)
+		row := RequestHealthTimelinePoint{
+			BucketMS:    bucketMS,
+			Calls:       point.Calls,
+			Tokens:      point.Tokens,
+			Success:     point.Success,
+			Failure:     point.Failure,
+			SuccessRate: rate(point.Success, point.Calls),
+			FailureRate: failureRate,
+			Tone:        requestHealthTone(point.Calls, failureRate, isFuture),
+			Intensity:   rate(point.Calls, maxCalls),
+			Future:      isFuture,
+		}
+		result.SuccessCalls += row.Success
+		result.FailureCalls += row.Failure
+		result.TotalCalls += row.Calls
+		result.Points = append(result.Points, row)
+	}
+	result.SuccessRate = rate(result.SuccessCalls, result.TotalCalls)
+	return result
+}
+
+func requestHealthTone(calls int64, failureRate float64, future bool) string {
+	switch {
+	case future:
+		return "future"
+	case calls == 0:
+		return "empty"
+	case failureRate >= 0.1:
+		return "bad"
+	case failureRate > 0:
+		return "warn"
+	default:
+		return "good"
+	}
 }
 
 func buildTokenMix(today TodaySummary) []TokenMixSegment {
