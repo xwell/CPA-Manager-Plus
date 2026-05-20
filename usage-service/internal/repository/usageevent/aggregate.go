@@ -212,16 +212,24 @@ func (r *repository) RecentFailuresBetween(ctx context.Context, fromMs, toMs int
 
 // HourlyTimelineBetween returns hourly buckets relative to fromMs over [fromMs, toMs).
 func (r *repository) HourlyTimelineBetween(ctx context.Context, fromMs, toMs int64) ([]TimelinePoint, error) {
+	return r.BucketTimelineBetween(ctx, fromMs, toMs, 3600000)
+}
+
+// BucketTimelineBetween returns buckets relative to fromMs over [fromMs, toMs).
+func (r *repository) BucketTimelineBetween(ctx context.Context, fromMs, toMs int64, bucketMs int64) ([]TimelinePoint, error) {
+	if bucketMs <= 0 {
+		bucketMs = 3600000
+	}
 	rows, err := r.db.QueryContext(ctx, `select
-	cast((timestamp_ms - ?) / 3600000 as integer) as hour_index,
+	cast((timestamp_ms - ?) / ? as integer) as bucket_index,
 	count(*),
 	coalesce(sum(total_tokens), 0),
 	sum(case when failed = 0 then 1 else 0 end),
 	sum(case when failed = 1 then 1 else 0 end)
 from usage_events
 where timestamp_ms >= ? and timestamp_ms < ?
-group by hour_index
-order by hour_index`, fromMs, fromMs, toMs)
+group by bucket_index
+order by bucket_index`, fromMs, bucketMs, fromMs, toMs)
 	if err != nil {
 		return nil, err
 	}
@@ -229,15 +237,15 @@ order by hour_index`, fromMs, fromMs, toMs)
 
 	points := make([]TimelinePoint, 0)
 	for rows.Next() {
-		var hourIndex int64
+		var bucketIndex int64
 		var point TimelinePoint
-		if err := rows.Scan(&hourIndex, &point.Calls, &point.Tokens, &point.Success, &point.Failure); err != nil {
+		if err := rows.Scan(&bucketIndex, &point.Calls, &point.Tokens, &point.Success, &point.Failure); err != nil {
 			return nil, err
 		}
-		if hourIndex < 0 {
+		if bucketIndex < 0 {
 			continue
 		}
-		point.BucketMS = fromMs + hourIndex*60*60*1000
+		point.BucketMS = fromMs + bucketIndex*bucketMs
 		points = append(points, point)
 	}
 	return points, rows.Err()
