@@ -218,6 +218,7 @@ func TestCodexInspectionScheduleDue(t *testing.T) {
 	timePointCfg.Enabled = &enabled
 	timePointCfg.Schedule.Mode = model.CodexInspectionScheduleModeTimePoints
 	timePointCfg.Schedule.TimePoints = []string{"10:30", "18:00"}
+	timePointCfg.Schedule.TimeZone = "Asia/Shanghai"
 	if !model.CodexInspectionScheduleDue(now, time.Time{}, timePointCfg) {
 		t.Fatal("expected time_points schedule to be due")
 	}
