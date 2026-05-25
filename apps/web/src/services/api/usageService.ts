@@ -12,6 +12,7 @@ const USAGE_SERVICE_ERROR_CODES = new Set([
   'management_api_config_failed',
   'cpa_usage_retention_invalid',
   'poll_interval_exceeds_retention',
+  'invalid_time_zone',
   'enable_cpa_usage_statistics_failed',
   'setup_env_managed',
   'invalid_existing_management_key',
