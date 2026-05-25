@@ -2155,6 +2155,7 @@
     "management_api_config_failed": "读取 CPA 配置失败，请检查 Management API。",
     "cpa_usage_retention_invalid": "CPA 用量队列保留时间必须大于 0。",
     "poll_interval_exceeds_retention": "采集轮询间隔必须小于等于 CPA 用量队列保留时间。",
+    "invalid_time_zone": "时区保存失败，请检查时区名称或确认运行环境已安装 tzdata。",
     "enable_cpa_usage_statistics_failed": "启用 CPA 用量统计失败。",
     "setup_env_managed": "初始化配置由环境变量管理。",
     "invalid_existing_management_key": "现有配置拒绝了该管理密钥。",

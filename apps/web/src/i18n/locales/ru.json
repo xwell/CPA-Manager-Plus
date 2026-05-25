@@ -2151,6 +2151,7 @@
     "management_api_config_failed": "Не удалось прочитать конфигурацию CPA через Management API.",
     "cpa_usage_retention_invalid": "Время хранения очереди CPA usage должно быть больше 0.",
     "poll_interval_exceeds_retention": "Интервал опроса сборщика должен быть не больше окна хранения очереди CPA usage.",
+    "invalid_time_zone": "Не удалось сохранить часовой пояс. Проверьте название часового пояса или убедитесь, что tzdata установлен в среде выполнения.",
     "enable_cpa_usage_statistics_failed": "Не удалось включить CPA usage statistics.",
     "setup_env_managed": "Настройка управляется переменными окружения.",
     "invalid_existing_management_key": "Существующая настройка отклонила этот ключ управления.",

@@ -2180,6 +2180,7 @@
     "management_api_config_failed": "讀取 CPA 設定失敗，請檢查 Management API。",
     "cpa_usage_retention_invalid": "CPA 用量佇列保留時間必須大於 0。",
     "poll_interval_exceeds_retention": "採集輪詢間隔必須小於等於 CPA 用量佇列保留時間。",
+    "invalid_time_zone": "時區儲存失敗，請檢查時區名稱或確認執行環境已安裝 tzdata。",
     "enable_cpa_usage_statistics_failed": "啟用 CPA 用量統計失敗。",
     "setup_env_managed": "初始化設定由環境變數管理。",
     "invalid_existing_management_key": "現有設定拒絕了該管理金鑰。",
