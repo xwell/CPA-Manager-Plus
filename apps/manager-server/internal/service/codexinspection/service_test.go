@@ -250,6 +250,69 @@ func TestRunAutoActionDisableExecutesDeleteSuggestionAsDisable(t *testing.T) {
 	}
 }
 
+func TestRunAutoActionSkipsDuplicateFileNameResults(t *testing.T) {
+	var deleteCalls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"},{"name":"auth-a.json","auth_index":"auth-2","provider":"codex","account":"bob@example.com","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated."}}`))
+		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodDelete:
+			deleteCalls++
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionDelete
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{
+		TriggerType: "manual",
+		TriggerKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if deleteCalls != 1 {
+		t.Fatalf("delete calls = %d, want 1", deleteCalls)
+	}
+	if result.Run.DeleteCount != 2 || result.Run.KeepCount != 0 {
+		t.Fatalf("run counts delete=%d keep=%d, want 2/0", result.Run.DeleteCount, result.Run.KeepCount)
+	}
+	if len(result.Results) != 2 {
+		t.Fatalf("results = %#v, want 2", result.Results)
+	}
+
+	byAuthIndex := map[string]model.CodexInspectionResult{}
+	for _, item := range result.Results {
+		byAuthIndex[item.AuthIndex] = item
+		if item.Action != "delete" {
+			t.Fatalf("result action = %q, want delete: %#v", item.Action, item)
+		}
+	}
+	canonical := byAuthIndex["auth-1"]
+	if canonical.ActionStatus != model.CodexInspectionActionStatusSuccess ||
+		canonical.ExecutedAction != "delete" ||
+		canonical.ActionError != "" {
+		t.Fatalf("canonical result = %#v, want success delete", canonical)
+	}
+	duplicate := byAuthIndex["auth-2"]
+	if duplicate.ActionStatus != model.CodexInspectionActionStatusSkipped ||
+		duplicate.ExecutedAction != "" ||
+		duplicate.ActionError == "" {
+		t.Fatalf("duplicate result = %#v, want skipped with action error", duplicate)
+	}
+}
+
 func TestRunClassifiesExpiredUnauthorizedAsReauth(t *testing.T) {
 	var deleteCalled bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

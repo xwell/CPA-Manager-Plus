@@ -701,13 +701,16 @@ func (s *Service) executeAutoActions(
 	logger runLogger,
 ) []ActionOutcome {
 	mode := model.NormalizeCodexInspectionAutoActionMode(settings.AutoActionMode, model.CodexInspectionAutoActionNone)
-	items := dedupeAutoActionItems(settings.AutoActionMode, results)
+	items, duplicateOutcomes := selectAutoActionItems(mode, results)
 	if len(items) == 0 {
-		return nil
+		return duplicateOutcomes
 	}
-	return s.executeActionItems(ctx, setup, settings, items, logger, "自动处理", func(item model.CodexInspectionResult) string {
+	outcomes := make([]ActionOutcome, 0, len(duplicateOutcomes)+len(items))
+	outcomes = append(outcomes, duplicateOutcomes...)
+	outcomes = append(outcomes, s.executeActionItems(ctx, setup, settings, items, logger, "自动处理", func(item model.CodexInspectionResult) string {
 		return resolveExecutableAction(mode, item.Action)
-	})
+	})...)
+	return outcomes
 }
 
 func (s *Service) executeActionItems(
@@ -1091,23 +1094,43 @@ func resolveExecutableAction(mode string, action string) string {
 	return action
 }
 
-func dedupeAutoActionItems(mode string, results []model.CodexInspectionResult) []model.CodexInspectionResult {
+func selectAutoActionItems(mode string, results []model.CodexInspectionResult) ([]model.CodexInspectionResult, []ActionOutcome) {
 	mode = model.NormalizeCodexInspectionAutoActionMode(mode, model.CodexInspectionAutoActionNone)
 	if mode == model.CodexInspectionAutoActionNone {
-		return nil
+		return nil, nil
 	}
-	return dedupeActionItems(results, func(result model.CodexInspectionResult) bool {
-		switch mode {
-		case model.CodexInspectionAutoActionEnable:
-			return result.Action == "enable"
-		case model.CodexInspectionAutoActionDisable:
-			return result.Action == "enable" || result.Action == "disable" || result.Action == "delete"
-		case model.CodexInspectionAutoActionDelete:
-			return result.Action == "enable" || result.Action == "disable" || result.Action == "delete"
-		default:
-			return false
+	items := make([]model.CodexInspectionResult, 0)
+	outcomes := make([]ActionOutcome, 0)
+	seenFileNames := map[string]struct{}{}
+	for _, result := range results {
+		if !allowAutoAction(mode, result) {
+			continue
 		}
-	})
+		fileName := strings.TrimSpace(result.FileName)
+		if fileName == "" {
+			continue
+		}
+		if _, ok := seenFileNames[fileName]; ok {
+			outcomes = append(outcomes, skippedActionOutcome(result, result.Action, "CPA 认证文件动作按文件执行，该文件已由另一条结果处理"))
+			continue
+		}
+		seenFileNames[fileName] = struct{}{}
+		items = append(items, result)
+	}
+	return items, outcomes
+}
+
+func allowAutoAction(mode string, result model.CodexInspectionResult) bool {
+	switch mode {
+	case model.CodexInspectionAutoActionEnable:
+		return result.Action == "enable"
+	case model.CodexInspectionAutoActionDisable:
+		return result.Action == "enable" || result.Action == "disable" || result.Action == "delete"
+	case model.CodexInspectionAutoActionDelete:
+		return result.Action == "enable" || result.Action == "disable" || result.Action == "delete"
+	default:
+		return false
+	}
 }
 
 func selectManualActionItems(
@@ -1167,28 +1190,6 @@ func selectManualActionItems(
 
 func isExecutableInspectionAction(action string) bool {
 	return action == "delete" || action == "disable" || action == "enable"
-}
-
-func dedupeActionItems(
-	results []model.CodexInspectionResult,
-	allow func(model.CodexInspectionResult) bool,
-) []model.CodexInspectionResult {
-	seen := map[string]model.CodexInspectionResult{}
-	for _, result := range results {
-		if result.FileName == "" || !allow(result) {
-			continue
-		}
-		if _, ok := seen[result.FileName]; ok {
-			continue
-		}
-		seen[result.FileName] = result
-	}
-	items := make([]model.CodexInspectionResult, 0, len(seen))
-	for _, item := range seen {
-		items = append(items, item)
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].FileName < items[j].FileName })
-	return items
 }
 
 func (s *Service) validateManualActionItems(
