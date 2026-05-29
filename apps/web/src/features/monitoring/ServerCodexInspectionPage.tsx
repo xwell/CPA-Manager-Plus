@@ -593,11 +593,7 @@ export function ServerCodexInspectionPage() {
         setSelectedRunId(null);
       }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : getUsageServiceDisplayError(error, t);
-      setError(message);
+      setError(getUsageServiceDisplayError(error, t));
       setRuns([]);
       setDetail(null);
       setSelectedRunId(null);
