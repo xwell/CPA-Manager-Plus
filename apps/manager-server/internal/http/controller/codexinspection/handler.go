@@ -35,11 +35,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 			TriggerKey:  "manual",
 		})
 		if err != nil {
-			status := http.StatusInternalServerError
-			if strings.Contains(err.Error(), "already running") {
-				status = http.StatusConflict
-			}
-			response.Error(w, status, err)
+			response.Error(w, codexInspectionErrorStatus(err), err)
 			return
 		}
 		response.JSON(w, http.StatusOK, result)
@@ -89,7 +85,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 				response.Error(w, http.StatusBadRequest, err)
 				return
 			}
-			result, err := h.App.CodexInspectionService.ExecuteManualActions(context.WithoutCancel(r.Context()), id, req)
+			result, err := h.App.CodexInspectionService.ExecuteManualActions(r.Context(), id, req)
 			if err != nil {
 				response.Error(w, codexInspectionErrorStatus(err), err)
 				return
@@ -117,6 +113,8 @@ func codexInspectionErrorStatus(err error) int {
 	case errors.Is(err, codexsvc.ErrRunAlreadyActive),
 		errors.Is(err, codexsvc.ErrRunNotCompleted):
 		return http.StatusConflict
+	case errors.Is(err, codexsvc.ErrNotConfigured):
+		return http.StatusPreconditionFailed
 	case errors.Is(err, codexsvc.ErrActionIDsRequired),
 		errors.Is(err, codexsvc.ErrNoActionableResults):
 		return http.StatusBadRequest

@@ -109,6 +109,7 @@ func TestCodexInspectionManualActionsRoute(t *testing.T) {
 	}
 	var actionResult struct {
 		Outcomes []struct {
+			Status  string `json:"status"`
 			Action  string `json:"action"`
 			Success bool   `json:"success"`
 		} `json:"outcomes"`
@@ -118,21 +119,44 @@ func TestCodexInspectionManualActionsRoute(t *testing.T) {
 				KeepCount   int `json:"keepCount"`
 			} `json:"run"`
 			Results []struct {
-				Action   string `json:"action"`
-				Disabled bool   `json:"disabled"`
+				Action         string `json:"action"`
+				ActionStatus   string `json:"actionStatus"`
+				ExecutedAction string `json:"executedAction"`
+				Disabled       bool   `json:"disabled"`
 			} `json:"results"`
 		} `json:"detail"`
 	}
 	testutil.DecodeJSON(t, actionRR, &actionResult)
-	if len(actionResult.Outcomes) != 1 || !actionResult.Outcomes[0].Success || actionResult.Outcomes[0].Action != "enable" {
+	if len(actionResult.Outcomes) != 1 ||
+		!actionResult.Outcomes[0].Success ||
+		actionResult.Outcomes[0].Status != model.CodexInspectionActionStatusSuccess ||
+		actionResult.Outcomes[0].Action != "enable" {
 		t.Fatalf("action outcomes = %#v", actionResult.Outcomes)
 	}
-	if actionResult.Detail.Run.EnableCount != 0 || actionResult.Detail.Run.KeepCount != 1 {
+	if actionResult.Detail.Run.EnableCount != 1 || actionResult.Detail.Run.KeepCount != 0 {
 		t.Fatalf("run counts = %#v", actionResult.Detail.Run)
 	}
-	if len(actionResult.Detail.Results) != 1 || actionResult.Detail.Results[0].Action != "keep" || actionResult.Detail.Results[0].Disabled {
+	if len(actionResult.Detail.Results) != 1 ||
+		actionResult.Detail.Results[0].Action != "enable" ||
+		actionResult.Detail.Results[0].ActionStatus != model.CodexInspectionActionStatusSuccess ||
+		actionResult.Detail.Results[0].ExecutedAction != "enable" ||
+		actionResult.Detail.Results[0].Disabled {
 		t.Fatalf("updated results = %#v", actionResult.Detail.Results)
 	}
+}
+
+func TestCodexInspectionRunReturnsPreconditionFailedWhenNotConfigured(t *testing.T) {
+	cfg := testutil.NewConfig(t)
+	handler, db := newCompatHandler(t, cfg, nil)
+	managerCfg := newCodexInspectionHTTPManagerConfig("")
+	managerCfg.CPAConnection.CPABaseURL = ""
+	managerCfg.CPAConnection.ManagementKey = ""
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+
+	rr := testutil.Request(t, handler, http.MethodPost, "/v0/management/codex-inspection/run", "", testutil.AdminKey)
+	testutil.RequireStatus(t, rr, http.StatusPreconditionFailed)
 }
 
 func newCodexInspectionHTTPManagerConfig(upstreamURL string) store.ManagerConfig {
