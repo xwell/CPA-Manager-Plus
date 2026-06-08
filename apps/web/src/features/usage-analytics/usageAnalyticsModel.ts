@@ -1104,11 +1104,14 @@ export const buildUsageMatrix = ({
   dimension: UsageMatrixDimension;
   metric: UsageMatrixMetricKey;
 }): UsageMatrix => {
+  const providerModelRows = apiKeyRows.some((row) => row.models?.length)
+    ? apiKeyRows
+    : credentialRows;
   const sourceRows =
     dimension === 'authFileModel'
       ? credentialRows
       : dimension === 'providerModel'
-        ? [...apiKeyRows, ...credentialRows]
+        ? providerModelRows
         : apiKeyRows;
   const cells = buildMatrixCellsFromEntityRows(
     sourceRows,

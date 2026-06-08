@@ -157,21 +157,8 @@ export function useUsageAnalytics() {
         drilldownPreview,
         filters: analyticsFilters,
         granularity: resolvedGranularity,
-        keyword: filters.apiKeyKeyword,
-        matrixDimension,
-        matrixMetric,
-        trendMetric,
       }),
-    [
-      analyticsFilters,
-      bounds,
-      drilldownPreview,
-      filters.apiKeyKeyword,
-      matrixDimension,
-      matrixMetric,
-      resolvedGranularity,
-      trendMetric,
-    ]
+    [analyticsFilters, bounds, drilldownPreview, resolvedGranularity]
   );
 
   const analytics = useMonitoringAnalytics({
@@ -184,9 +171,10 @@ export function useUsageAnalytics() {
     throttleMs: 0,
   });
 
+  const analyticsData = analytics.dataStale ? null : analytics.data;
   const adapted = useMemo(
-    () => adaptUsageAnalyticsData(analytics.data, resolvedGranularity, filters.apiKeyKeyword),
-    [analytics.data, filters.apiKeyKeyword, resolvedGranularity]
+    () => adaptUsageAnalyticsData(analyticsData, resolvedGranularity, filters.apiKeyKeyword),
+    [analyticsData, filters.apiKeyKeyword, resolvedGranularity]
   );
 
   const selectedBucket = useMemo(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MonitoringAnalyticsResponse } from '@/services/api/usageService';
+import type { UsageRankRow } from './usageAnalyticsModel';
 import {
   analyzeUsageBucket,
   buildApiKeyRows,
@@ -256,6 +257,88 @@ describe('usage analytics adapters', () => {
       label: 'sk-****7890',
       severity: 'high',
       reasonKey: 'usage_analytics.anomaly_reason_cost_spike',
+    });
+  });
+
+  it('does not double-count provider/model matrix rows from API key and credential projections', () => {
+    const usageRow = (overrides: Partial<UsageRankRow>): UsageRankRow => ({
+      id: 'row',
+      label: 'row',
+      requestCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      successRate: 0,
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      estimatedCost: 0,
+      averageLatencyMs: null,
+      share: 0,
+      ...overrides,
+    });
+    const apiKeyRows = [
+      usageRow({
+        id: 'hash-a',
+        label: 'sk-****7890',
+        apiKeyHash: 'abcdef1234567890',
+        provider: 'OpenAI',
+        requestCount: 10,
+        successCount: 10,
+        totalTokens: 100,
+        models: [
+          usageRow({
+            id: 'gpt-4o',
+            label: 'gpt-4o',
+            model: 'gpt-4o',
+            requestCount: 10,
+            successCount: 10,
+            totalTokens: 100,
+            estimatedCost: 1,
+          }),
+        ],
+      }),
+    ];
+    const credentialRows = [
+      usageRow({
+        id: 'credential-a',
+        label: 'prod',
+        provider: 'OpenAI',
+        authFile: 'prod.json',
+        requestCount: 10,
+        successCount: 10,
+        totalTokens: 100,
+        models: [
+          usageRow({
+            id: 'gpt-4o',
+            label: 'gpt-4o',
+            model: 'gpt-4o',
+            requestCount: 10,
+            successCount: 10,
+            totalTokens: 100,
+            estimatedCost: 1,
+          }),
+        ],
+      }),
+    ];
+
+    const matrix = buildUsageMatrix({
+      apiKeyRows,
+      credentialRows,
+      dimension: 'providerModel',
+      metric: 'requestCount',
+    });
+
+    expect(matrix.rowLabels).toEqual(['OpenAI']);
+    expect(matrix.columnLabels).toEqual(['gpt-4o']);
+    expect(matrix.cells[0]).toMatchObject({
+      rowLabel: 'OpenAI',
+      columnLabel: 'gpt-4o',
+      requestCount: 10,
+      totalTokens: 100,
+      value: 10,
     });
   });
 
