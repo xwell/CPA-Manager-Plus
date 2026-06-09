@@ -496,6 +496,7 @@ export interface MonitoringAnalyticsDrilldownPreviewRequest {
 
 export interface MonitoringAnalyticsInclude {
   summary?: boolean;
+  summary_comparison?: boolean;
   timeline?: boolean;
   hourly_distribution?: boolean;
   model_share?: boolean;
@@ -552,6 +553,17 @@ export interface MonitoringAnalyticsSummary {
   approx_task_failures: number;
   approx_task_success_rate: number;
   zero_token_models: string[];
+}
+
+export interface MonitoringAnalyticsSummaryComparison {
+  from_ms: number;
+  to_ms: number;
+  total_calls: number;
+  success_calls: number;
+  failure_calls: number;
+  success_rate: number;
+  total_tokens: number;
+  total_cost: number;
 }
 
 export interface MonitoringAnalyticsTimelinePoint {
@@ -851,6 +863,7 @@ export interface MonitoringAnalyticsResponse {
   generated_at_ms: number;
   granularity: 'hour' | 'day' | string;
   summary?: MonitoringAnalyticsSummary;
+  summary_comparison?: MonitoringAnalyticsSummaryComparison;
   timeline?: MonitoringAnalyticsTimelinePoint[];
   hourly_distribution?: MonitoringAnalyticsHourlyPoint[];
   heatmap?: MonitoringAnalyticsHeatmapPoint[];

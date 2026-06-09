@@ -8,6 +8,7 @@ import {
   buildKeyAnomalies,
   buildUsageInsights,
   buildUsageMatrix,
+  buildUsageSummaryDelta,
   buildUsageAnalyticsFilters,
   buildUsageAnalyticsInclude,
   getUsageRangeBounds,
@@ -177,6 +178,11 @@ export function useUsageAnalytics() {
     [analyticsData, filters.apiKeyKeyword, resolvedGranularity]
   );
 
+  const summaryDelta = useMemo(
+    () => buildUsageSummaryDelta(adapted.summary, adapted.summaryComparison),
+    [adapted.summary, adapted.summaryComparison]
+  );
+
   const selectedBucket = useMemo(
     () =>
       selectedBucketMs === null
@@ -320,6 +326,7 @@ export function useUsageAnalytics() {
     lastRefreshedAt: analytics.lastRefreshedAt,
     refresh,
     summary: adapted.summary,
+    summaryDelta,
     timeline: adapted.timeline,
     modelRows: adapted.modelRows,
     apiKeyRows: adapted.apiKeyRows,

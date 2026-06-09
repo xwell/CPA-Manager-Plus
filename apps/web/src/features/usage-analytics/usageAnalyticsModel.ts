@@ -11,6 +11,7 @@ import type {
   MonitoringAnalyticsModelStat,
   MonitoringAnalyticsResponse,
   MonitoringAnalyticsSummary,
+  MonitoringAnalyticsSummaryComparison,
   MonitoringAnalyticsTimelinePoint,
 } from '@/services/api/usageService';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
@@ -115,6 +116,13 @@ export type UsageSummaryMetrics = {
   p95TtftMs: number | null;
   rpm30m: number;
   tpm30m: number;
+};
+
+export type UsageSummaryDelta = {
+  hasComparison: boolean;
+  requestCount: number;
+  totalTokens: number;
+  estimatedCost: number;
 };
 
 export type UsageRankRow = {
@@ -612,6 +620,7 @@ export const buildUsageAnalyticsInclude = (
 ): MonitoringAnalyticsInclude => {
   const include: MonitoringAnalyticsInclude = {
     summary: true,
+    summary_comparison: true,
     timeline: true,
     model_stats: true,
     channel_share: true,
@@ -1449,6 +1458,7 @@ export const adaptUsageAnalyticsData = (
   const providerRows = buildProviderRows(data?.channel_share ?? [], apiKeyRows, credentialRows, summary);
   return {
     summary,
+    summaryComparison: data?.summary_comparison,
     timeline,
     modelRows,
     apiKeyRows,
@@ -1464,6 +1474,21 @@ export const adaptUsageAnalyticsData = (
 const percentChange = (current: number, previous: number) => {
   if (previous <= 0) return current > 0 ? 1 : 0;
   return (current - previous) / previous;
+};
+
+export const buildUsageSummaryDelta = (
+  summary: UsageSummaryMetrics,
+  comparison?: MonitoringAnalyticsSummaryComparison | null
+): UsageSummaryDelta => {
+  if (!comparison) {
+    return { hasComparison: false, requestCount: 0, totalTokens: 0, estimatedCost: 0 };
+  }
+  return {
+    hasComparison: true,
+    requestCount: percentChange(summary.requestCount, toNumber(comparison.total_calls)),
+    totalTokens: percentChange(summary.totalTokens, toNumber(comparison.total_tokens)),
+    estimatedCost: percentChange(summary.estimatedCost, toNumber(comparison.total_cost)),
+  };
 };
 
 export const anomalyMetricLabelKey = (key: string) => {
