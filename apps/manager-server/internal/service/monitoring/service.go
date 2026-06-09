@@ -56,6 +56,7 @@ type Filters struct {
 
 type Include struct {
 	Summary            bool              `json:"summary"`
+	SummaryComparison  bool              `json:"summary_comparison"`
 	Timeline           bool              `json:"timeline"`
 	HourlyDistribution bool              `json:"hourly_distribution"`
 	ModelShare         bool              `json:"model_share"`
@@ -91,6 +92,7 @@ type Response struct {
 	GeneratedAtMS      int64               `json:"generated_at_ms"`
 	Granularity        string              `json:"granularity"`
 	Summary            *Summary            `json:"summary,omitempty"`
+	SummaryComparison  *SummaryComparison  `json:"summary_comparison,omitempty"`
 	Timeline           []TimelinePoint     `json:"timeline,omitempty"`
 	HourlyDistribution []HourlyPoint       `json:"hourly_distribution,omitempty"`
 	Heatmap            []HeatmapPoint      `json:"heatmap,omitempty"`
@@ -135,6 +137,21 @@ type Summary struct {
 	ApproxTaskFailures    int64    `json:"approx_task_failures"`
 	ApproxTaskSuccessRate float64  `json:"approx_task_success_rate"`
 	ZeroTokenModels       []string `json:"zero_token_models"`
+}
+
+// SummaryComparison holds previous-period aggregates computed with the same
+// filter as the current summary, letting the client derive period-over-period
+// deltas. It is only populated when Include.SummaryComparison is set, keeping
+// the extra queries off other consumers (dashboard/monitoring) that don't need it.
+type SummaryComparison struct {
+	FromMS       int64   `json:"from_ms"`
+	ToMS         int64   `json:"to_ms"`
+	TotalCalls   int64   `json:"total_calls"`
+	SuccessCalls int64   `json:"success_calls"`
+	FailureCalls int64   `json:"failure_calls"`
+	SuccessRate  float64 `json:"success_rate"`
+	TotalTokens  int64   `json:"total_tokens"`
+	TotalCost    float64 `json:"total_cost"`
 }
 
 type TimelinePoint struct {
@@ -501,6 +518,36 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 		response.Summary = buildSummary(agg, latencySummary, rollingAgg, activeDays, modelStats, taskBuckets, prices, zeroTokenModels)
 		summaryTotalCalls = agg.TotalCalls
 		summaryComputed = true
+
+		// Period-over-period comparison reuses the same filter over the
+		// immediately preceding window [FromMS-window, FromMS). Gated behind an
+		// explicit flag so other analytics consumers avoid the extra queries.
+		if req.Include.SummaryComparison {
+			windowMS := req.ToMS - req.FromMS
+			if prevFrom := req.FromMS - windowMS; prevFrom > 0 {
+				prevFilter := filter
+				prevFilter.FromMS = prevFrom
+				prevFilter.ToMS = req.FromMS
+				prevAgg, err := s.store.AggregateWithFilter(ctx, prevFilter)
+				if err != nil {
+					return Response{}, err
+				}
+				prevModelStats, err := s.store.ModelStatsWithFilter(ctx, prevFilter, 0)
+				if err != nil {
+					return Response{}, err
+				}
+				response.SummaryComparison = &SummaryComparison{
+					FromMS:       prevFrom,
+					ToMS:         req.FromMS,
+					TotalCalls:   prevAgg.TotalCalls,
+					SuccessCalls: prevAgg.SuccessCalls,
+					FailureCalls: prevAgg.FailureCalls,
+					SuccessRate:  ratio(prevAgg.SuccessCalls, prevAgg.TotalCalls),
+					TotalTokens:  prevAgg.TotalTokens,
+					TotalCost:    sumCost(prevModelStats, prices),
+				}
+			}
+		}
 	}
 	var timeline []TimelinePoint
 	if req.Include.Timeline || req.Include.AnomalyPoints {

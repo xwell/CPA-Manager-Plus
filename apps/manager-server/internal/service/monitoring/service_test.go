@@ -103,6 +103,77 @@ func TestAnalyticsBuildsIncludedSections(t *testing.T) {
 	}
 }
 
+func TestAnalyticsSummaryComparisonReturnsPreviousPeriod(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	if err := db.SaveModelPrices(ctx, map[string]store.ModelPrice{
+		"gpt-a": {Prompt: 1, Completion: 2, Cache: 0.5},
+	}); err != nil {
+		t.Fatalf("save model prices: %v", err)
+	}
+	fromMS := int64(1_778_000_000_000)
+	toMS := fromMS + 2*60*60*1000
+	windowMS := toMS - fromMS
+	prevFrom := fromMS - windowMS
+
+	// Current window: 2 calls. Previous window: 3 calls (2 success, 1 failure).
+	if _, err := db.InsertEvents(ctx, []usage.Event{
+		monitoringEvent("cur-1", fromMS+1_000, "gpt-a", "auth-1", "src-a", false, 100, 50, 0, 0, 150, nil),
+		monitoringEvent("cur-2", fromMS+2_000, "gpt-a", "auth-1", "src-a", false, 100, 50, 0, 0, 150, nil),
+		monitoringEvent("prev-1", prevFrom+1_000, "gpt-a", "auth-1", "src-a", false, 1_000, 500, 0, 0, 1_500, nil),
+		monitoringEvent("prev-2", prevFrom+2_000, "gpt-a", "auth-1", "src-a", false, 1_000, 500, 0, 0, 1_500, nil),
+		monitoringEvent("prev-3", prevFrom+3_000, "gpt-a", "auth-1", "src-a", true, 1_000, 500, 0, 0, 1_500, nil),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	resp, err := New(db).Analytics(ctx, Request{
+		FromMS:  fromMS,
+		ToMS:    toMS,
+		NowMS:   toMS,
+		Include: Include{Summary: true, SummaryComparison: true},
+	})
+	if err != nil {
+		t.Fatalf("analytics: %v", err)
+	}
+	if resp.Summary == nil || resp.Summary.TotalCalls != 2 {
+		t.Fatalf("current summary = %#v", resp.Summary)
+	}
+	cmp := resp.SummaryComparison
+	if cmp == nil {
+		t.Fatalf("summary_comparison is nil")
+	}
+	if cmp.FromMS != prevFrom || cmp.ToMS != fromMS {
+		t.Fatalf("comparison window = [%d,%d), want [%d,%d)", cmp.FromMS, cmp.ToMS, prevFrom, fromMS)
+	}
+	if cmp.TotalCalls != 3 || cmp.SuccessCalls != 2 || cmp.FailureCalls != 1 {
+		t.Fatalf("comparison calls = %#v", cmp)
+	}
+	if cmp.TotalTokens != 4_500 {
+		t.Fatalf("comparison tokens = %d", cmp.TotalTokens)
+	}
+	if cmp.TotalCost <= 0 {
+		t.Fatalf("comparison cost = %v", cmp.TotalCost)
+	}
+	if math.Abs(cmp.SuccessRate-2.0/3.0) > 0.000001 {
+		t.Fatalf("comparison success rate = %v", cmp.SuccessRate)
+	}
+
+	// Without the explicit flag, no comparison is computed.
+	respNoCmp, err := New(db).Analytics(ctx, Request{
+		FromMS:  fromMS,
+		ToMS:    toMS,
+		NowMS:   toMS,
+		Include: Include{Summary: true},
+	})
+	if err != nil {
+		t.Fatalf("analytics (no comparison): %v", err)
+	}
+	if respNoCmp.SummaryComparison != nil {
+		t.Fatalf("expected nil comparison, got %#v", respNoCmp.SummaryComparison)
+	}
+}
+
 func TestCacheHitRateMatchesWebClient(t *testing.T) {
 	// Anthropic-style: InputTokens excludes cache, so denominator = input + cacheRead + cacheCreation.
 	anthropic := cacheHitRate(TimelinePoint{
