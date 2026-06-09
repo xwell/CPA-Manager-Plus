@@ -235,14 +235,6 @@ export type UsageInsight = {
   actionTab?: UsageAnalyticsTab;
 };
 
-export type UsageViewShortcut = {
-  id: string;
-  labelKey: string;
-  descriptionKey: string;
-  tab: UsageAnalyticsTab;
-  favorite: boolean;
-};
-
 export type UsageHeatmapPoint = {
   weekday: number;
   hour: number;
@@ -414,37 +406,6 @@ export const USAGE_MATRIX_METRICS: UsageMatrixMetricKey[] = [
   'totalTokens',
   'estimatedCost',
   'failureRate',
-];
-
-export const USAGE_VIEW_SHORTCUTS: UsageViewShortcut[] = [
-  {
-    id: 'daily-board',
-    labelKey: 'usage_analytics.view_daily_board',
-    descriptionKey: 'usage_analytics.view_daily_board_desc',
-    tab: 'overview',
-    favorite: true,
-  },
-  {
-    id: 'high-cost-key-monitor',
-    labelKey: 'usage_analytics.view_high_cost_key',
-    descriptionKey: 'usage_analytics.view_high_cost_key_desc',
-    tab: 'apiKeys',
-    favorite: true,
-  },
-  {
-    id: 'production-credential-board',
-    labelKey: 'usage_analytics.view_prod_credentials',
-    descriptionKey: 'usage_analytics.view_prod_credentials_desc',
-    tab: 'credentials',
-    favorite: false,
-  },
-  {
-    id: 'team-weekly-board',
-    labelKey: 'usage_analytics.view_team_weekly',
-    descriptionKey: 'usage_analytics.view_team_weekly_desc',
-    tab: 'trends',
-    favorite: false,
-  },
 ];
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -1410,6 +1371,24 @@ export const buildServerAnomalyPoints = (
     failureRateChange: toNumber(point.failure_rate_change),
     latencyP95Change: toNumber(point.latency_p95_change),
   }));
+
+export const summarizeAnomalies = (
+  points: UsageServerAnomaly[],
+  options: { minRequests?: number; limit?: number } = {}
+): UsageServerAnomaly[] => {
+  const minRequests = options.minRequests ?? 10;
+  const limit = options.limit ?? 3;
+  const severityScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
+  return [...points]
+    .filter((point) => point.requestCount >= minRequests)
+    .sort(
+      (left, right) =>
+        (severityScore[right.severity] ?? 0) - (severityScore[left.severity] ?? 0) ||
+        right.estimatedCost - left.estimatedCost ||
+        right.requestCount - left.requestCount
+    )
+    .slice(0, limit);
+};
 
 export const buildDrilldownPreview = (
   rows: MonitoringAnalyticsEventRow[] = [],

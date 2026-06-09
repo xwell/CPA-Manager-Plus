@@ -14,7 +14,6 @@ import {
   getUsageRangeBounds,
   resolveUsageGranularity,
   USAGE_ANALYTICS_DEFAULT_FILTERS,
-  USAGE_VIEW_SHORTCUTS,
   type UsageMatrixDimension,
   type UsageMatrixMetricKey,
   type UsageTrendMetricKey,
@@ -24,58 +23,6 @@ import {
   type UsageAnomalyAnalysis,
   type UsageTimelinePoint,
 } from './usageAnalyticsModel';
-
-const FAVORITE_VIEWS_STORAGE_KEY = 'cpa-manager-plus:usage-analytics:favorite-views';
-const RECENT_VIEWS_STORAGE_KEY = 'cpa-manager-plus:usage-analytics:recent-views';
-
-export type UsageRecentView = {
-  id: string;
-  labelKey: string;
-  tab: UsageAnalyticsTab;
-  viewedAtMs: number;
-};
-
-const readStringArray = (key: string, fallback: string[]) => {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]');
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string')
-      : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const writeJson = (key: string, value: unknown) => {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Ignore storage failures; analytics remains usable without local shortcuts.
-  }
-};
-
-const readRecentViews = (): UsageRecentView[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(RECENT_VIEWS_STORAGE_KEY) || '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(
-        (item): item is UsageRecentView =>
-          item &&
-          typeof item === 'object' &&
-          typeof item.id === 'string' &&
-          typeof item.labelKey === 'string' &&
-          typeof item.tab === 'string' &&
-          typeof item.viewedAtMs === 'number'
-      )
-      .slice(0, 6);
-  } catch {
-    return [];
-  }
-};
 
 export function useUsageAnalytics() {
   const [filters, setFiltersState] = useState<UsageAnalyticsFiltersState>(
@@ -92,41 +39,9 @@ export function useUsageAnalytics() {
     useState<UsageMatrixDimension>('apiKeyModel');
   const [matrixMetric, setMatrixMetric] = useState<UsageMatrixMetricKey>('requestCount');
   const [activeCredentialsOnly, setActiveCredentialsOnly] = useState(true);
-  const [favoriteViewIds, setFavoriteViewIds] = useState<string[]>(() =>
-    readStringArray(
-      FAVORITE_VIEWS_STORAGE_KEY,
-      USAGE_VIEW_SHORTCUTS.filter((view) => view.favorite).map((view) => view.id)
-    )
-  );
-  const [recentViews, setRecentViews] = useState<UsageRecentView[]>(() => readRecentViews());
-
-  const recordRecentView = useCallback((tab: UsageAnalyticsTab) => {
-    const shortcut =
-      USAGE_VIEW_SHORTCUTS.find((view) => view.tab === tab) ??
-      USAGE_VIEW_SHORTCUTS.find((view) => view.id === 'daily-board');
-    if (!shortcut) return;
-    setRecentViews((current) => {
-      const next = [
-        {
-          id: `${shortcut.id}:${tab}`,
-          labelKey: shortcut.labelKey,
-          tab,
-          viewedAtMs: Date.now(),
-        },
-        ...current.filter((item) => item.tab !== tab),
-      ].slice(0, 6);
-      writeJson(RECENT_VIEWS_STORAGE_KEY, next);
-      return next;
-    });
+  const setActiveTab = useCallback((tab: UsageAnalyticsTab) => {
+    setActiveTabState(tab);
   }, []);
-
-  const setActiveTab = useCallback(
-    (tab: UsageAnalyticsTab) => {
-      setActiveTabState(tab);
-      recordRecentView(tab);
-    },
-    [recordRecentView]
-  );
 
   const bounds = useMemo(() => getUsageRangeBounds(filters, nowMs), [filters, nowMs]);
   const resolvedGranularity = useMemo(
@@ -259,30 +174,6 @@ export function useUsageAnalytics() {
       adapted.summary,
     ]
   );
-  const favoriteViews = useMemo(
-    () =>
-      USAGE_VIEW_SHORTCUTS.map((view) => ({
-        ...view,
-        favorite: favoriteViewIds.includes(view.id),
-      })),
-    [favoriteViewIds]
-  );
-
-  const toggleFavoriteView = useCallback((id: string) => {
-    setFavoriteViewIds((current) => {
-      const next = current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id];
-      writeJson(FAVORITE_VIEWS_STORAGE_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const clearRecentViews = useCallback(() => {
-    setRecentViews([]);
-    writeJson(RECENT_VIEWS_STORAGE_KEY, []);
-  }, []);
-
   const setFilters = useCallback((patch: Partial<UsageAnalyticsFiltersState>) => {
     setFiltersState((current) => ({ ...current, ...patch }));
     setSelectedBucketMs(null);
@@ -348,10 +239,6 @@ export function useUsageAnalytics() {
     activeCredentialsOnly,
     setActiveCredentialsOnly,
     insights,
-    favoriteViews,
-    toggleFavoriteView,
-    recentViews,
-    clearRecentViews,
     anomalyPoints: adapted.anomalyPoints,
     drilldownPreview: adapted.drilldownPreview,
     filterOptions: adapted.filterOptions,

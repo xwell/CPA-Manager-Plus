@@ -25,37 +25,23 @@ const usageAnalyticsKeys = [
   'usage_analytics.tab_credentials',
   'usage_analytics.tab_heatmap',
   'usage_analytics.all',
-  'usage_analytics.export',
-  'usage_analytics.export_coming_soon',
   'usage_analytics.awaiting_refresh',
-  'usage_analytics.favorite_view',
-  'usage_analytics.save_view',
-  'usage_analytics.favorite_views_title',
-  'usage_analytics.favorite_empty',
-  'usage_analytics.recent_views_title',
-  'usage_analytics.clear_recent',
-  'usage_analytics.recent_empty',
-  'usage_analytics.updated_at',
-  'usage_analytics.view_daily_board',
-  'usage_analytics.view_daily_board_desc',
-  'usage_analytics.view_high_cost_key',
-  'usage_analytics.view_high_cost_key_desc',
-  'usage_analytics.view_prod_credentials',
-  'usage_analytics.view_prod_credentials_desc',
-  'usage_analytics.view_team_weekly',
-  'usage_analytics.view_team_weekly_desc',
-  'usage_analytics.analysis_entry_trends',
-  'usage_analytics.analysis_entry_trends_desc',
-  'usage_analytics.analysis_entry_models',
-  'usage_analytics.analysis_entry_models_desc',
-  'usage_analytics.analysis_entry_api_keys',
-  'usage_analytics.analysis_entry_api_keys_desc',
-  'usage_analytics.analysis_entry_credentials',
-  'usage_analytics.analysis_entry_credentials_desc',
-  'usage_analytics.analysis_entry_heatmap',
-  'usage_analytics.analysis_entry_heatmap_desc',
+  'usage_analytics.overview_updated_at',
+  'usage_analytics.overview_selected_bucket',
+  'usage_analytics.overview_no_bucket_selected',
+  'usage_analytics.overview_active_filters',
+  'usage_analytics.selected_filters',
+  'usage_analytics.no_selected_filters',
   'usage_analytics.filter_metric',
   'usage_analytics.filter_dimension',
+  'usage_analytics.trend_peak_request_bucket',
+  'usage_analytics.trend_average_bucket_requests',
+  'usage_analytics.trend_request_change',
+  'usage_analytics.trend_token_change',
+  'usage_analytics.trend_cost_change',
+  'usage_analytics.trend_failure_peak',
+  'usage_analytics.trend_p95_peak',
+  'usage_analytics.trend_entity_compare_title',
   'usage_analytics.trend_metric_requestCount',
   'usage_analytics.trend_metric_totalTokens',
   'usage_analytics.trend_metric_estimatedCost',
@@ -159,6 +145,7 @@ const usageAnalyticsKeys = [
   'usage_analytics.model_overview_title',
   'usage_analytics.api_key_overview_title',
   'usage_analytics.credential_overview_title',
+  'usage_analytics.provider_overview_title',
   'usage_analytics.active_models',
   'usage_analytics.active_api_keys',
   'usage_analytics.active_credentials',
@@ -171,6 +158,7 @@ const usageAnalyticsKeys = [
   'usage_analytics.model_rank_title',
   'usage_analytics.cost_share_title',
   'usage_analytics.model_compare_title',
+  'usage_analytics.api_key_compare_title',
   'usage_analytics.api_key_keyword_placeholder',
   'usage_analytics.api_key_rank_title',
   'usage_analytics.api_key_warning_title',
@@ -222,7 +210,11 @@ const usageAnalyticsKeys = [
   'usage_analytics.metric_average_cost_per_call',
   'usage_analytics.metric_failure_count',
   'usage_analytics.metric_average_latency',
+  'usage_analytics.metric_p95_latency',
   'usage_analytics.metric_p95_ttft',
+  'usage_analytics.metric_rpm_30m',
+  'usage_analytics.metric_tpm_30m',
+  'usage_analytics.cache_read_rate',
   'usage_analytics.success_rate',
   'usage_analytics.failure_rate',
   'usage_analytics.share',
@@ -249,9 +241,14 @@ const usageAnalyticsKeys = [
 
 describe('usage analytics app wiring', () => {
   it('registers /usage-analytics behind the request monitoring gate', () => {
-    expect(routesSource).toContain("import { UsageAnalyticsPage } from '@/pages/UsageAnalyticsPage';");
+    expect(routesSource).toContain(
+      "import { UsageAnalyticsPage } from '@/pages/UsageAnalyticsPage';"
+    );
     const usageRouteIndex = routesSource.indexOf("path: '/usage-analytics'");
-    const usageRouteSource = routesSource.slice(usageRouteIndex, routesSource.indexOf("path: '/codex-inspection'"));
+    const usageRouteSource = routesSource.slice(
+      usageRouteIndex,
+      routesSource.indexOf("path: '/codex-inspection'")
+    );
 
     expect(usageRouteIndex).toBeGreaterThanOrEqual(0);
     expect(usageRouteSource).toContain('<FeatureGate feature="requestMonitoring">');
@@ -263,10 +260,16 @@ describe('usage analytics app wiring', () => {
 
   it('places Usage Analytics in the top-level sidebar between dashboard and monitoring when monitoring is available', () => {
     const dashboardIndex = layoutSource.indexOf("path: '/', label: t('nav.dashboard')");
-    const usageIndex = layoutSource.indexOf('...(usageAnalyticsNavItem ? [usageAnalyticsNavItem] : [])');
-    const monitoringIndex = layoutSource.indexOf('...(monitoringNavItem ? [monitoringNavItem] : [])');
+    const usageIndex = layoutSource.indexOf(
+      '...(usageAnalyticsNavItem ? [usageAnalyticsNavItem] : [])'
+    );
+    const monitoringIndex = layoutSource.indexOf(
+      '...(monitoringNavItem ? [monitoringNavItem] : [])'
+    );
 
-    expect(layoutSource).toContain('const usageAnalyticsNavItem = featureAvailability.requestMonitoringAvailable');
+    expect(layoutSource).toContain(
+      'const usageAnalyticsNavItem = featureAvailability.requestMonitoringAvailable'
+    );
     expect(layoutSource).toContain("path: '/usage-analytics'");
     expect(layoutSource).toContain("label: t('nav.usage_analytics')");
     expect(dashboardIndex).toBeGreaterThanOrEqual(0);
@@ -278,7 +281,7 @@ describe('usage analytics app wiring', () => {
     expect(pageSource).toContain('const escapeHtml = (value: string | number | null | undefined)');
     expect(pageSource).not.toContain('<b>${item.name}</b>');
     expect(pageSource).toContain('escapeHtml(\n          item.name');
-    expect(pageSource).toContain('${entry.marker ?? \'\'}${escapeHtml(entry.seriesName)}');
+    expect(pageSource).toContain("${entry.marker ?? ''}${escapeHtml(entry.seriesName)}");
   });
 
   it('keeps Usage Analytics i18n keys present in every locale', () => {

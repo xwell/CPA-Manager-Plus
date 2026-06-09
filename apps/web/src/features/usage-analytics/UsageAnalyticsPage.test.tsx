@@ -11,14 +11,9 @@ import { UsageAnalyticsPage } from './UsageAnalyticsPage';
 
 const { mocks } = vi.hoisted(() => ({
   mocks: {
-    downloadBlob: vi.fn(),
     navigate: vi.fn(),
     usageState: null as unknown,
   },
-}));
-
-vi.mock('@/utils/download', () => ({
-  downloadBlob: mocks.downloadBlob,
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -60,9 +55,7 @@ const renderPage = () => {
 };
 
 const findHostButtonByText = (renderer: ReactTestRenderer, text: string) => {
-  const button = renderer.root
-    .findAllByType('button')
-    .find((node) => getText(node).includes(text));
+  const button = renderer.root.findAllByType('button').find((node) => getText(node).includes(text));
   if (!button) throw new Error(`Button not found: ${text}`);
   return button;
 };
@@ -187,6 +180,7 @@ const createUsageState = (overrides: Record<string, unknown> = {}) => {
       rpm30m: 0,
       tpm30m: 0,
     },
+    summaryDelta: { hasComparison: false, requestCount: 0, totalTokens: 0, estimatedCost: 0 },
     timeline: [point],
     modelRows: [modelRow],
     apiKeyRows: [apiKeyRow],
@@ -290,32 +284,6 @@ const createUsageState = (overrides: Record<string, unknown> = {}) => {
         actionTab: 'trends',
       },
     ],
-    favoriteViews: [
-      {
-        id: 'daily-board',
-        labelKey: 'usage_analytics.view_daily_board',
-        descriptionKey: 'usage_analytics.view_daily_board_desc',
-        tab: 'overview',
-        favorite: true,
-      },
-      {
-        id: 'high-cost-key-monitor',
-        labelKey: 'usage_analytics.view_high_cost_key',
-        descriptionKey: 'usage_analytics.view_high_cost_key_desc',
-        tab: 'apiKeys',
-        favorite: true,
-      },
-    ],
-    toggleFavoriteView: vi.fn(),
-    recentViews: [
-      {
-        id: 'daily-board:overview',
-        labelKey: 'usage_analytics.view_daily_board',
-        tab: 'overview',
-        viewedAtMs: point.bucketMs,
-      },
-    ],
-    clearRecentViews: vi.fn(),
     anomalyPoints: [
       {
         bucketMs: point.bucketMs,
@@ -376,21 +344,50 @@ const createUsageState = (overrides: Record<string, unknown> = {}) => {
 };
 
 beforeEach(() => {
-  mocks.downloadBlob.mockReset();
   mocks.navigate.mockReset();
   mocks.usageState = createUsageState();
 });
 
 describe('UsageAnalyticsPage', () => {
-  it('renders overview as the default tab with shortcuts and insight panels', () => {
+  it('renders overview as the default tab with risk, trend, and contribution panels', () => {
     const renderer = renderPage();
     const text = getText(renderer.root);
 
     expect(text).toContain('usage_analytics.tab_overview');
-    expect(text).toContain('usage_analytics.analysis_entry_trends');
-    expect(text).toContain('usage_analytics.favorite_views_title');
+    expect(text).toContain('usage_analytics.anomaly_points_title');
     expect(text).toContain('usage_analytics.insights_title');
+    expect(text).toContain('usage_analytics.overview_trend_title');
+    expect(text).toContain('usage_analytics.model_overview_title');
+    expect(text).toContain('usage_analytics.api_key_overview_title');
+    expect(text).toContain('usage_analytics.provider_overview_title');
+    expect(text).not.toContain('usage_analytics.analysis_entry_trends');
+    expect(text).not.toContain('usage_analytics.favorite_views_title');
+    expect(text).not.toContain('usage_analytics.recent_views_title');
     expect(text).not.toContain('usage_analytics.model_rank_title');
+  });
+
+  it('renders trends as a focused time-series workspace', () => {
+    mocks.usageState = createUsageState({
+      activeTab: 'trends',
+      anomalyAnalysis: null,
+      selectedBucket: null,
+    });
+    const renderer = renderPage();
+    const text = getText(renderer.root);
+
+    expect(text).toContain('usage_analytics.trend_peak_request_bucket');
+    expect(text).toContain('usage_analytics.trend_average_bucket_requests');
+    expect(text).toContain('usage_analytics.trend_metric_requestCount');
+    expect(text).toContain('usage_analytics.trend_entity_compare_title');
+    expect(text).toContain('usage_analytics.model_compare_title');
+    expect(text).toContain('usage_analytics.api_key_compare_title');
+    expect(text).toContain('usage_analytics.health_trend_title');
+    expect(text).toContain('usage_analytics.token_structure_title');
+    expect(text).toContain('usage_analytics.anomaly_points_title');
+    expect(text).not.toContain('usage_analytics.api_key_warning_title');
+    expect(text).not.toContain('usage_analytics.model_overview_title');
+    expect(text).not.toContain('usage_analytics.api_key_overview_title');
+    expect(text).not.toContain('usage_analytics.drilldown_preview_title');
   });
 
   it('shows empty and error states from the analytics hook', () => {
@@ -449,7 +446,6 @@ describe('UsageAnalyticsPage', () => {
     expect(text).toContain('usage_analytics.filter_project_team');
     expect(text).not.toContain('usage_analytics.common_views_title');
     expect(text).not.toContain('usage_analytics.filter_cache_status');
-    expect(text).not.toContain('usage_analytics.selected_filters');
   });
 
   it('keeps API key values masked in the API Key tab', () => {
@@ -472,34 +468,17 @@ describe('UsageAnalyticsPage', () => {
     expect(usageState.setFilters).toHaveBeenCalledWith({ timeRange: '24h' });
   });
 
-  it('renders the page header with export and refresh actions', () => {
+  it('keeps the removed page header and export action out of the page shell', () => {
     const renderer = renderPage();
     const text = getText(renderer.root);
 
-    expect(text).toContain('usage_analytics.title');
-    expect(text).toContain('usage_analytics.subtitle');
-    expect(text).toContain('usage_analytics.export');
+    expect(text).not.toContain('usage_analytics.title');
+    expect(text).not.toContain('usage_analytics.subtitle');
+    expect(text).not.toContain('usage_analytics.export');
     expect(
-      renderer.root.findAllByType(Button).some((button) => getText(button).includes('common.refresh'))
+      renderer.root
+        .findAllByType(Button)
+        .some((button) => getText(button).includes('common.refresh'))
     ).toBe(true);
-  });
-
-  it('exports usage analytics JSON without raw API key hashes', async () => {
-    mocks.usageState = createUsageState({
-      filters: {
-        ...USAGE_ANALYTICS_DEFAULT_FILTERS,
-        apiKeyHash: 'abcdef1234567890',
-      },
-    });
-    const renderer = renderPage();
-
-    clickHostButton(findHostButtonByText(renderer, 'usage_analytics.export'));
-
-    expect(mocks.downloadBlob).toHaveBeenCalledTimes(1);
-    const options = mocks.downloadBlob.mock.calls[0][0] as { blob: Blob; filename: string };
-    const exported = await options.blob.text();
-    expect(options.filename).toMatch(/^usage-analytics-overview-\d+\.json$/);
-    expect(exported).toContain('sk-****7890');
-    expect(exported).not.toContain('abcdef1234567890');
   });
 });
