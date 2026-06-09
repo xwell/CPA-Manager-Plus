@@ -13,6 +13,7 @@ import {
   buildUsageAnomalyCauseKeys,
   buildUsageHeatmapChartData,
   buildUsageTimeline,
+  computeCacheHitRate,
   getUsageRangeBounds,
   maskApiKeyHash,
   resolveUsageGranularity,
@@ -397,6 +398,49 @@ describe('usage analytics adapters', () => {
       model: 'gpt-4o',
       estimatedCost: 0.2,
     });
+  });
+});
+
+describe('cache hit rate', () => {
+  it('uses total input (input + cacheRead + cacheCreation) as the denominator for Anthropic usage', () => {
+    expect(
+      computeCacheHitRate({
+        inputTokens: 100,
+        cacheReadTokens: 300,
+        cacheCreationTokens: 50,
+        cachedTokens: 0,
+      })
+    ).toBeCloseTo(300 / 450, 6);
+  });
+
+  it('falls back to cached tokens for OpenAI usage where input already includes cache', () => {
+    expect(
+      computeCacheHitRate({
+        inputTokens: 1000,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        cachedTokens: 400,
+      })
+    ).toBeCloseTo(0.4, 6);
+  });
+
+  it('returns 0 without input and clamps malformed ratios to 1', () => {
+    expect(
+      computeCacheHitRate({
+        inputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        cachedTokens: 0,
+      })
+    ).toBe(0);
+    expect(
+      computeCacheHitRate({
+        inputTokens: 10,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        cachedTokens: 1000,
+      })
+    ).toBe(1);
   });
 });
 

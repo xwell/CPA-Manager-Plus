@@ -656,6 +656,22 @@ export const buildUsageSummary = (
 const getBucketSizeMs = (granularity: UsageAnalyticsResolvedGranularity) =>
   granularity === 'day' ? DAY_MS : HOUR_MS;
 
+// Cache hit rate = cache-read tokens / total input tokens, unified across providers.
+// Anthropic reports input_tokens excluding cache, so total input = input + cacheRead + cacheCreation
+// (the three are mutually exclusive). OpenAI's input_tokens already includes cached tokens (reported
+// as cachedTokens, with cacheRead/cacheCreation = 0), so it falls back to cached / input.
+export const computeCacheHitRate = (tokens: {
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  cachedTokens: number;
+}): number => {
+  const cacheRead = tokens.cacheReadTokens > 0 ? tokens.cacheReadTokens : tokens.cachedTokens;
+  const totalInput = tokens.inputTokens + tokens.cacheReadTokens + tokens.cacheCreationTokens;
+  if (totalInput <= 0) return 0;
+  return Math.min(1, cacheRead / totalInput);
+};
+
 export const buildUsageTimeline = (
   timeline: MonitoringAnalyticsTimelinePoint[] = [],
   granularity: UsageAnalyticsResolvedGranularity
@@ -688,7 +704,12 @@ export const buildUsageTimeline = (
       averageLatencyMs: toNullableNumber(point.average_latency_ms),
       p95LatencyMs: toNullableNumber(point.p95_latency_ms),
       p95TtftMs: toNullableNumber(point.p95_ttft_ms),
-      cacheHitRate: inputTokens > 0 ? cacheReadTokens / inputTokens : 0,
+      cacheHitRate: computeCacheHitRate({
+        inputTokens,
+        cacheReadTokens,
+        cacheCreationTokens: toNumber(point.cache_creation_tokens),
+        cachedTokens: toNumber(point.cached_tokens),
+      }),
       averageTokensPerRequest: requestCount > 0 ? totalTokens / requestCount : 0,
     };
   });
@@ -1014,7 +1035,7 @@ export const buildProviderRows = (
       current.failureCount += row.failureCount;
       current.totalTokens += row.totalTokens;
       current.estimatedCost += row.estimatedCost;
-      current.cacheRate += row.inputTokens > 0 ? row.cacheReadTokens / row.inputTokens : 0;
+      current.cacheRate += computeCacheHitRate(row);
       grouped.set(label, current);
     });
   }
@@ -1035,10 +1056,15 @@ export const buildProviderRows = (
         successRate: safeShare(row.successCount, row.requestCount),
         cacheRate:
           models.length > 0
-            ? safeShare(
-                models.reduce((sum, model) => sum + model.cacheReadTokens, 0),
-                models.reduce((sum, model) => sum + model.inputTokens, 0)
-              )
+            ? computeCacheHitRate({
+                inputTokens: models.reduce((sum, model) => sum + model.inputTokens, 0),
+                cacheReadTokens: models.reduce((sum, model) => sum + model.cacheReadTokens, 0),
+                cacheCreationTokens: models.reduce(
+                  (sum, model) => sum + model.cacheCreationTokens,
+                  0
+                ),
+                cachedTokens: models.reduce((sum, model) => sum + model.cachedTokens, 0),
+              })
             : row.cacheRate,
         share: safeShare(row.requestCount, totalRequests),
         models: models.map((model) => ({ ...model, share: safeShare(model.totalTokens, modelTotal) })),
@@ -1307,7 +1333,7 @@ export const buildUsageInsights = ({
       actionTab: 'heatmap',
     });
   }
-  if (summary.inputTokens > 0 && summary.cacheReadTokens / summary.inputTokens < 0.08) {
+  if (summary.inputTokens > 0 && computeCacheHitRate(summary) < 0.08) {
     insights.push({
       id: 'cache-room',
       tone: 'info',
