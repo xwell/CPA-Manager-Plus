@@ -178,6 +178,67 @@ describe('useMonitoringAnalytics', () => {
     });
   });
 
+  it('allows a root events page refresh to supersede in-flight pagination', async () => {
+    const requests = installDeferredAnalyticsMock();
+    const scopeKey = 'range:today';
+
+    await act(async () => {
+      renderer = create(
+        <Harness
+          dataScopeKey={scopeKey}
+          include={{
+            summary: true,
+            events_page: { limit: 500, before_ms: 12_345, before_id: 99 },
+          }}
+        />
+      );
+    });
+
+    expect(getAnalyticsMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      renderer?.update(
+        <Harness
+          dataScopeKey={scopeKey}
+          nowMs={15_000}
+          include={{
+            summary: true,
+            events_page: { limit: 500, before_ms: null, before_id: null },
+          }}
+        />
+      );
+      await flushPromises();
+    });
+
+    expect(getAnalyticsMock).toHaveBeenCalledTimes(2);
+    expect(getAnalyticsMock.mock.calls[0]?.[2].include?.events_page).toEqual({
+      limit: 500,
+      before_ms: 12_345,
+      before_id: 99,
+    });
+    expect(getAnalyticsMock.mock.calls[1]?.[2].include?.events_page).toEqual({
+      limit: 500,
+      before_ms: null,
+      before_id: null,
+    });
+
+    await act(async () => {
+      requests[1]?.resolve(createResponse(2));
+      await flushPromises();
+    });
+
+    expect(latestResult?.loading).toBe(false);
+    expect(latestResult?.data?.generated_at_ms).toBe(2);
+
+    await act(async () => {
+      requests[0]?.resolve(createResponse(1));
+      await flushPromises();
+    });
+
+    expect(latestResult?.loading).toBe(false);
+    expect(latestResult?.data?.generated_at_ms).toBe(2);
+  });
+
   it('ignores stale responses that resolve after a newer scope', async () => {
     const requests = installDeferredAnalyticsMock();
 

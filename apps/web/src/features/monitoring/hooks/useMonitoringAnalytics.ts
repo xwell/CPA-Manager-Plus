@@ -51,6 +51,28 @@ const stableJson = (value: unknown) => JSON.stringify(value ?? {});
 
 const parseJson = <T>(value: string): T => JSON.parse(value) as T;
 
+const buildInFlightRequestIdentityKey = (
+  dataScopeKey: string | undefined,
+  request: MonitoringAnalyticsRequest,
+  requestKey: string
+) => {
+  if (!dataScopeKey) {
+    return requestKey;
+  }
+
+  const eventsPage = request.include?.events_page;
+  return stableJson({
+    dataScopeKey,
+    eventsPage: eventsPage
+      ? {
+          limit: eventsPage.limit ?? null,
+          before_ms: eventsPage.before_ms ?? null,
+          before_id: eventsPage.before_id ?? null,
+        }
+      : null,
+  });
+};
+
 export function useMonitoringAnalytics({
   fromMs,
   toMs,
@@ -73,7 +95,7 @@ export function useMonitoringAnalytics({
   const requestIdRef = useRef(0);
   const lastStartedAtRef = useRef(0);
   const lastRequestKeyRef = useRef('');
-  const inFlightScopeKeyRef = useRef('');
+  const inFlightRequestIdentityKeyRef = useRef('');
   const inFlightRequestIdRef = useRef(0);
 
   const filtersKey = useMemo(() => stableJson(filters), [filters]);
@@ -120,6 +142,10 @@ export function useMonitoringAnalytics({
   }, [eventsPageKey, filtersKey, fromMs, includeKey, nowMs, searchApiKeyHash, searchQuery, toMs]);
 
   const requestKey = useMemo(() => (request ? stableJson(request) : ''), [request]);
+  const inFlightRequestIdentityKey = useMemo(
+    () => (request ? buildInFlightRequestIdentityKey(dataScopeKey, request, requestKey) : ''),
+    [dataScopeKey, request, requestKey]
+  );
   const activeDataScopeKey = dataScopeKey || requestKey;
   const serviceBase = availability.serviceBase;
   const enabled = availability.available && Boolean(serviceBase) && Boolean(request);
@@ -128,7 +154,7 @@ export function useMonitoringAnalytics({
     async (options: MonitoringAnalyticsRefreshOptions = {}) => {
       if (!enabled || !request || !serviceBase) {
         requestIdRef.current += 1;
-        inFlightScopeKeyRef.current = '';
+        inFlightRequestIdentityKeyRef.current = '';
         inFlightRequestIdRef.current = 0;
         setData(null);
         setDataScopeStateKey('');
@@ -137,7 +163,7 @@ export function useMonitoringAnalytics({
         return;
       }
 
-      if (inFlightScopeKeyRef.current === activeDataScopeKey) {
+      if (inFlightRequestIdentityKeyRef.current === inFlightRequestIdentityKey) {
         return;
       }
 
@@ -155,7 +181,7 @@ export function useMonitoringAnalytics({
       requestIdRef.current = requestId;
       lastStartedAtRef.current = startedAt;
       lastRequestKeyRef.current = requestKey;
-      inFlightScopeKeyRef.current = activeDataScopeKey;
+      inFlightRequestIdentityKeyRef.current = inFlightRequestIdentityKey;
       inFlightRequestIdRef.current = requestId;
       setLoading(true);
       setError('');
@@ -175,7 +201,7 @@ export function useMonitoringAnalytics({
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (inFlightRequestIdRef.current === requestId) {
-          inFlightScopeKeyRef.current = '';
+          inFlightRequestIdentityKeyRef.current = '';
           inFlightRequestIdRef.current = 0;
         }
         if (requestIdRef.current === requestId) {
@@ -183,7 +209,16 @@ export function useMonitoringAnalytics({
         }
       }
     },
-    [activeDataScopeKey, enabled, managementKey, request, requestKey, serviceBase, throttleMs]
+    [
+      activeDataScopeKey,
+      enabled,
+      inFlightRequestIdentityKey,
+      managementKey,
+      request,
+      requestKey,
+      serviceBase,
+      throttleMs,
+    ]
   );
 
   useEffect(() => {
