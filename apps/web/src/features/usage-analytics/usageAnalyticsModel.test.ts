@@ -12,7 +12,11 @@ import {
   buildUsageAnalyticsFilters,
   buildUsageAnalyticsInclude,
   buildUsageAnomalyCauseKeys,
+  buildUsageHeatmapCellDetail,
   buildUsageHeatmapChartData,
+  buildUsageHeatmapHighlights,
+  buildUsageHeatmapRangeContext,
+  buildUsageHeatmap,
   buildUsageTimeline,
   computeCacheHitRate,
   computeRowAverageCostPerCall,
@@ -30,21 +34,19 @@ const DAY_MS = 24 * HOUR_MS;
 describe('usage analytics request model', () => {
   it('resolves time ranges and default granularity rules', () => {
     expect(USAGE_ANALYTICS_DEFAULT_FILTERS.timeRange).toBe('24h');
-    expect(
-      getUsageRangeBounds({ timeRange: '24h', customRange: null }, NOW_MS)
-    ).toEqual({
+    expect(getUsageRangeBounds({ timeRange: '24h', customRange: null }, NOW_MS)).toEqual({
       fromMs: NOW_MS - DAY_MS,
       toMs: NOW_MS,
     });
-    expect(resolveUsageGranularity({ ...USAGE_ANALYTICS_DEFAULT_FILTERS, timeRange: '24h' }, NOW_MS)).toBe(
-      'hour'
-    );
-    expect(resolveUsageGranularity({ ...USAGE_ANALYTICS_DEFAULT_FILTERS, timeRange: '7d' }, NOW_MS)).toBe(
-      'hour'
-    );
-    expect(resolveUsageGranularity({ ...USAGE_ANALYTICS_DEFAULT_FILTERS, timeRange: '30d' }, NOW_MS)).toBe(
-      'day'
-    );
+    expect(
+      resolveUsageGranularity({ ...USAGE_ANALYTICS_DEFAULT_FILTERS, timeRange: '24h' }, NOW_MS)
+    ).toBe('hour');
+    expect(
+      resolveUsageGranularity({ ...USAGE_ANALYTICS_DEFAULT_FILTERS, timeRange: '7d' }, NOW_MS)
+    ).toBe('hour');
+    expect(
+      resolveUsageGranularity({ ...USAGE_ANALYTICS_DEFAULT_FILTERS, timeRange: '30d' }, NOW_MS)
+    ).toBe('day');
     expect(
       resolveUsageGranularity(
         {
@@ -128,7 +130,154 @@ describe('usage analytics adapters', () => {
           failureRate: 0,
         },
       ])
-    ).toEqual([[1, 2, 128, 3.25, 2 / 128]]);
+    ).toEqual([[1, 2, 128, 128, 126, 2, 1000, 3.25, 2 / 128]]);
+  });
+
+  it('normalizes heatmap color values and builds cell detail without changing raw metrics', () => {
+    const points = [
+      {
+        weekday: 1,
+        hour: 9,
+        requestCount: 10,
+        successCount: 9,
+        failureCount: 1,
+        totalTokens: 100,
+        estimatedCost: 1,
+        failureRate: 0.1,
+      },
+      {
+        weekday: 1,
+        hour: 10,
+        requestCount: 20,
+        successCount: 20,
+        failureCount: 0,
+        totalTokens: 400,
+        estimatedCost: 2,
+        failureRate: 0,
+      },
+      {
+        weekday: 2,
+        hour: 9,
+        requestCount: 5,
+        successCount: 3,
+        failureCount: 2,
+        totalTokens: 50,
+        estimatedCost: 0.5,
+        failureRate: 0.4,
+      },
+    ];
+
+    expect(buildUsageHeatmapChartData(points, 'totalTokens', 'byWeekday')).toEqual([
+      [9, 1, 0.25, 10, 9, 1, 100, 1, 0.1],
+      [10, 1, 1, 20, 20, 0, 400, 2, 0],
+      [9, 2, 1, 5, 3, 2, 50, 0.5, 0.4],
+    ]);
+
+    const detail = buildUsageHeatmapCellDetail(points, { weekday: 1, hour: 9 }, 'requestCount');
+    expect(detail).toMatchObject({
+      metricValue: 10,
+      overallBaseline: 35 / 3,
+      weekdayBaseline: 15,
+      hourBaseline: 7.5,
+      rank: 2,
+      totalCells: 3,
+    });
+
+    const highlights = buildUsageHeatmapHighlights(points);
+    expect(highlights.requestPeaks[0].value).toBe(20);
+    expect(highlights.costPeaks[0].value).toBe(2);
+    expect(highlights.failureRisks[0]).toMatchObject({
+      metric: 'failureRate',
+      value: 0.4,
+    });
+  });
+
+  it('builds heatmap range context from the active time window', () => {
+    const context = buildUsageHeatmapRangeContext(
+      {
+        fromMs: Date.UTC(2026, 5, 8, 0, 0, 0),
+        toMs: Date.UTC(2026, 5, 16, 0, 0, 0),
+      },
+      'en-US',
+      'UTC'
+    );
+
+    expect(context.dayCount).toBe(8);
+    expect(context.sampleWindowCount).toBe(8 * 24);
+    expect(context.rangeLabel).toContain('06/08');
+    expect(context.cellSamples['1-9']).toMatchObject({
+      dateLabels: ['06/08', '06/15'],
+      overflowCount: 0,
+      sampleCount: 2,
+    });
+  });
+
+  it('maps heatmap contributor fields from backend analytics', () => {
+    const rows = buildUsageHeatmap([
+      {
+        weekday: 1,
+        hour: 9,
+        calls: 3,
+        success: 2,
+        failure: 1,
+        tokens: 300,
+        cost: 4,
+        failure_rate: 1 / 3,
+        model_contributors: [
+          {
+            key: 'gpt-a',
+            label: 'gpt-a',
+            calls: 2,
+            success: 1,
+            failure: 1,
+            tokens: 200,
+            cost: 2,
+            failure_rate: 0.5,
+            share: 2 / 3,
+          },
+        ],
+        api_key_contributors: [
+          {
+            key: 'abcdef1234567890',
+            calls: 2,
+            success: 1,
+            failure: 1,
+            tokens: 200,
+            cost: 2,
+            failure_rate: 0.5,
+            share: 2 / 3,
+          },
+        ],
+        provider_contributors: [
+          {
+            key: 'openai',
+            label: 'openai',
+            calls: 2,
+            success: 1,
+            failure: 1,
+            tokens: 200,
+            cost: 2,
+            failure_rate: 0.5,
+            share: 2 / 3,
+          },
+        ],
+      },
+    ]);
+
+    expect(rows[0].modelContributors?.[0]).toMatchObject({
+      key: 'gpt-a',
+      requestCount: 2,
+      failureRate: 0.5,
+      share: 2 / 3,
+    });
+    expect(rows[0].apiKeyContributors?.[0]).toMatchObject({
+      key: 'abcdef1234567890',
+      label: 'abcdef1234567890',
+    });
+    expect(rows[0].providerContributors?.[0]).toMatchObject({
+      key: 'openai',
+      estimatedCost: 2,
+    });
   });
 
   it('keeps detailed token and cost fields from backend timeline buckets', () => {

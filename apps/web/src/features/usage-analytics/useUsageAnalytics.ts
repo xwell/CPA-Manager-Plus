@@ -7,6 +7,8 @@ import {
   buildEntityTrendSeries,
   buildKeyAnomalies,
   buildUsageInsights,
+  buildUsageHeatmapCellDetail,
+  buildUsageHeatmapHighlights,
   buildUsageMatrix,
   buildUsageSummaryDelta,
   buildUsageAnalyticsFilters,
@@ -21,14 +23,19 @@ import {
   type UsageAnalyticsTab,
   type UsageSelectedFilterKey,
   type UsageAnomalyAnalysis,
+  type UsageHeatmapCellSelection,
+  type UsageHeatmapMetricKey,
+  type UsageHeatmapScaleMode,
   type UsageTimelinePoint,
 } from './usageAnalyticsModel';
-import {
-  readUsageAnalyticsUiState,
-  writeUsageAnalyticsUiState,
-} from './usageAnalyticsUiState';
+import { readUsageAnalyticsUiState, writeUsageAnalyticsUiState } from './usageAnalyticsUiState';
 
 const USAGE_SEARCH_DEBOUNCE_MS = 350;
+
+const getBrowserTimeZone = () => {
+  if (typeof Intl === 'undefined') return 'UTC';
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+};
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -52,10 +59,15 @@ export function useUsageAnalytics() {
   const [selectedApiKeyHash, setSelectedApiKeyHash] = useState('');
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
   const [trendMetric, setTrendMetric] = useState<UsageTrendMetricKey>('requestCount');
-  const [matrixDimension, setMatrixDimension] =
-    useState<UsageMatrixDimension>('apiKeyModel');
+  const [matrixDimension, setMatrixDimension] = useState<UsageMatrixDimension>('apiKeyModel');
   const [matrixMetric, setMatrixMetric] = useState<UsageMatrixMetricKey>('requestCount');
+  const [heatmapMetric, setHeatmapMetric] = useState<UsageHeatmapMetricKey>('requestCount');
+  const [heatmapScaleMode, setHeatmapScaleMode] = useState<UsageHeatmapScaleMode>('absolute');
+  const [selectedHeatmapCell, setSelectedHeatmapCell] = useState<UsageHeatmapCellSelection | null>(
+    null
+  );
   const [activeCredentialsOnly, setActiveCredentialsOnly] = useState(true);
+  const browserTimeZone = useMemo(() => getBrowserTimeZone(), []);
   const setActiveTab = useCallback((tab: UsageAnalyticsTab) => {
     setActiveTabState(tab);
   }, []);
@@ -69,17 +81,13 @@ export function useUsageAnalytics() {
     () => resolveUsageGranularity(filters, nowMs),
     [filters, nowMs]
   );
-  const analyticsFilters = useMemo(
-    () => buildUsageAnalyticsFilters(filters),
-    [filters]
-  );
+  const analyticsFilters = useMemo(() => buildUsageAnalyticsFilters(filters), [filters]);
   const drilldownPreview = useMemo(() => {
     if (selectedBucketMs === null) return null;
     return {
       fromMs: selectedBucketMs,
       toMs:
-        selectedBucketMs +
-        (resolvedGranularity === 'day' ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000),
+        selectedBucketMs + (resolvedGranularity === 'day' ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000),
       limit: 12,
     };
   }, [resolvedGranularity, selectedBucketMs]);
@@ -166,6 +174,14 @@ export function useUsageAnalytics() {
     () => buildEntityTrendSeries(visibleCredentialRows, adapted.timeline, trendMetric, 4),
     [visibleCredentialRows, adapted.timeline, trendMetric]
   );
+  const heatmapDetail = useMemo(
+    () => buildUsageHeatmapCellDetail(adapted.heatmap, selectedHeatmapCell, heatmapMetric),
+    [adapted.heatmap, heatmapMetric, selectedHeatmapCell]
+  );
+  const heatmapHighlights = useMemo(
+    () => buildUsageHeatmapHighlights(adapted.heatmap),
+    [adapted.heatmap]
+  );
   const matrix = useMemo(
     () =>
       buildUsageMatrix({
@@ -176,10 +192,7 @@ export function useUsageAnalytics() {
       }),
     [adapted.apiKeyRows, adapted.credentialRows, matrixDimension, matrixMetric]
   );
-  const keyAnomalies = useMemo(
-    () => buildKeyAnomalies(adapted.apiKeyRows),
-    [adapted.apiKeyRows]
-  );
+  const keyAnomalies = useMemo(() => buildKeyAnomalies(adapted.apiKeyRows), [adapted.apiKeyRows]);
   const credentialAnomalies = useMemo(
     () => buildKeyAnomalies(adapted.credentialRows),
     [adapted.credentialRows]
@@ -212,12 +225,14 @@ export function useUsageAnalytics() {
       return next;
     });
     setSelectedBucketMs(null);
+    setSelectedHeatmapCell(null);
   }, []);
 
   const resetFilters = useCallback(() => {
     setFiltersState(USAGE_ANALYTICS_DEFAULT_FILTERS);
     writeUsageAnalyticsUiState({ filters: USAGE_ANALYTICS_DEFAULT_FILTERS });
     setSelectedBucketMs(null);
+    setSelectedHeatmapCell(null);
   }, []);
 
   const clearFilter = useCallback((key: UsageSelectedFilterKey) => {
@@ -230,10 +245,15 @@ export function useUsageAnalytics() {
       return next;
     });
     setSelectedBucketMs(null);
+    setSelectedHeatmapCell(null);
   }, []);
 
   const selectBucket = useCallback((point: UsageTimelinePoint | null) => {
     setSelectedBucketMs(point?.bucketMs ?? null);
+  }, []);
+
+  const selectHeatmapCell = useCallback((cell: UsageHeatmapCellSelection | null) => {
+    setSelectedHeatmapCell(cell);
   }, []);
 
   const refresh = useCallback(() => {
@@ -265,6 +285,15 @@ export function useUsageAnalytics() {
     allCredentialRows: adapted.credentialRows,
     providerRows: adapted.providerRows,
     heatmap: adapted.heatmap,
+    heatmapMetric,
+    setHeatmapMetric,
+    heatmapScaleMode,
+    setHeatmapScaleMode,
+    selectedHeatmapCell,
+    selectHeatmapCell,
+    heatmapDetail,
+    heatmapHighlights,
+    browserTimeZone,
     matrix,
     matrixDimension,
     setMatrixDimension,

@@ -203,7 +203,79 @@ const createUsageState = (overrides: Record<string, unknown> = {}) => {
         models: [modelRow],
       },
     ],
-    heatmap: [],
+    heatmap: [
+      {
+        weekday: 1,
+        hour: 9,
+        requestCount: 12,
+        successCount: 11,
+        failureCount: 1,
+        totalTokens: 1200,
+        estimatedCost: 1.25,
+        failureRate: 1 / 12,
+      },
+    ],
+    heatmapMetric: 'requestCount',
+    setHeatmapMetric: vi.fn(),
+    heatmapScaleMode: 'absolute',
+    setHeatmapScaleMode: vi.fn(),
+    selectedHeatmapCell: null,
+    selectHeatmapCell: vi.fn(),
+    heatmapDetail: null,
+    heatmapHighlights: {
+      requestPeaks: [
+        {
+          id: 'requestCount-1-9',
+          metric: 'requestCount',
+          value: 12,
+          point: {
+            weekday: 1,
+            hour: 9,
+            requestCount: 12,
+            successCount: 11,
+            failureCount: 1,
+            totalTokens: 1200,
+            estimatedCost: 1.25,
+            failureRate: 1 / 12,
+          },
+        },
+      ],
+      costPeaks: [
+        {
+          id: 'estimatedCost-1-9',
+          metric: 'estimatedCost',
+          value: 1.25,
+          point: {
+            weekday: 1,
+            hour: 9,
+            requestCount: 12,
+            successCount: 11,
+            failureCount: 1,
+            totalTokens: 1200,
+            estimatedCost: 1.25,
+            failureRate: 1 / 12,
+          },
+        },
+      ],
+      failureRisks: [
+        {
+          id: 'failureRate-1-9',
+          metric: 'failureRate',
+          value: 1 / 12,
+          point: {
+            weekday: 1,
+            hour: 9,
+            requestCount: 12,
+            successCount: 11,
+            failureCount: 1,
+            totalTokens: 1200,
+            estimatedCost: 1.25,
+            failureRate: 1 / 12,
+          },
+        },
+      ],
+    },
+    browserTimeZone: 'UTC',
     matrix: {
       dimension: 'apiKeyModel',
       metric: 'requestCount',
@@ -388,10 +460,9 @@ describe('UsageAnalyticsPage', () => {
     const usageState = createUsageState();
     mocks.usageState = usageState;
     const renderer = renderPage();
-    const timelineCells = renderer.root
-      .findAll((node) =>
-        String(node.props.title ?? '').includes('usage_analytics.health_timeline_status')
-      );
+    const timelineCells = renderer.root.findAll((node) =>
+      String(node.props.title ?? '').includes('usage_analytics.health_timeline_status')
+    );
     const timelineButton = renderer.root
       .findAllByType('button')
       .find((node) =>
@@ -521,11 +592,9 @@ describe('UsageAnalyticsPage', () => {
         'usage_analytics.filter_cache_status',
       ])
     );
-    expect(cacheStatusSelect?.props.options.map((option: { value: string }) => option.value)).toEqual([
-      'all',
-      'hit',
-      'miss',
-    ]);
+    expect(
+      cacheStatusSelect?.props.options.map((option: { value: string }) => option.value)
+    ).toEqual(['all', 'hit', 'miss']);
     expect(text).not.toContain('usage_analytics.filter_auth_file');
     expect(text).not.toContain('usage_analytics.filter_latency');
     expect(text).not.toContain('usage_analytics.filter_cache_status');
@@ -549,8 +618,12 @@ describe('UsageAnalyticsPage', () => {
     const text = getText(renderer.root);
     expect(text).not.toContain('usage_analytics.selected_filters');
     expect(text).not.toContain('usage_analytics.filter_search: req-42');
-    expect(text).not.toContain('usage_analytics.filter_cache_status: usage_analytics.cache_status_hit');
-    expect(text).not.toContain('usage_analytics.filter_latency: usage_analytics.latency_over_10000');
+    expect(text).not.toContain(
+      'usage_analytics.filter_cache_status: usage_analytics.cache_status_hit'
+    );
+    expect(text).not.toContain(
+      'usage_analytics.filter_latency: usage_analytics.latency_over_10000'
+    );
   });
 
   it('keeps API key values masked in the API Key tab', () => {
@@ -628,6 +701,124 @@ describe('UsageAnalyticsPage', () => {
     expect(text).not.toContain('usage_analytics.insight_credential_success_drop');
     // Only one model row, so the show-all toggle stays hidden.
     expect(text).not.toContain('usage_analytics.rank_show_all');
+  });
+
+  it('renders the heatmap tab as a focused time-window workspace', () => {
+    const usageState = createUsageState({ activeTab: 'heatmap' });
+    mocks.usageState = usageState;
+    const renderer = renderPage();
+    const text = getText(renderer.root);
+
+    expect(text).toContain('usage_analytics.heatmap_title');
+    expect(text).toContain('usage_analytics.heatmap_metric_requestCount');
+    expect(text).toContain('usage_analytics.heatmap_scale_absolute');
+    expect(text).toContain('usage_analytics.heatmap_range_label');
+    expect(text).toContain('usage_analytics.heatmap_bucket_hint');
+    expect(text).toContain('usage_analytics.heatmap_focus_title');
+    expect(text).toContain('usage_analytics.heatmap_peak_requests');
+    expect(text).not.toContain('usage_analytics.insights_title');
+    expect(text).not.toContain('usage_analytics.insight_heatmap_failure_window');
+    expect(text).not.toContain('usage_analytics.heatmap_matrix_title');
+    expect(text).not.toContain('usage_analytics.hot_combinations_title');
+
+    expect(
+      findHostButtonByText(renderer, 'usage_analytics.heatmap_metric_requestCount').props[
+        'aria-pressed'
+      ]
+    ).toBe(true);
+    expect(
+      findHostButtonByText(renderer, 'usage_analytics.heatmap_metric_totalTokens').props[
+        'aria-pressed'
+      ]
+    ).toBe(false);
+
+    clickHostButton(findHostButtonByText(renderer, 'usage_analytics.heatmap_metric_totalTokens'));
+    expect(usageState.setHeatmapMetric).toHaveBeenCalledWith('totalTokens');
+  });
+
+  it('renders selected heatmap contributors with masked API keys', () => {
+    const point = {
+      weekday: 1,
+      hour: 9,
+      requestCount: 12,
+      successCount: 11,
+      failureCount: 1,
+      totalTokens: 1200,
+      estimatedCost: 1.25,
+      failureRate: 1 / 12,
+      modelContributors: [
+        {
+          key: 'gpt-4o',
+          label: 'gpt-4o',
+          requestCount: 8,
+          successCount: 8,
+          failureCount: 0,
+          totalTokens: 900,
+          estimatedCost: 1,
+          failureRate: 0,
+          share: 8 / 12,
+        },
+      ],
+      apiKeyContributors: [
+        {
+          key: 'abcdef1234567890',
+          label: 'abcdef1234567890',
+          requestCount: 8,
+          successCount: 8,
+          failureCount: 0,
+          totalTokens: 900,
+          estimatedCost: 1,
+          failureRate: 0,
+          share: 8 / 12,
+        },
+      ],
+      providerContributors: [
+        {
+          key: 'openai',
+          label: 'openai',
+          requestCount: 8,
+          successCount: 8,
+          failureCount: 0,
+          totalTokens: 900,
+          estimatedCost: 1,
+          failureRate: 0,
+          share: 8 / 12,
+        },
+      ],
+    };
+    mocks.usageState = createUsageState({
+      activeTab: 'heatmap',
+      bounds: {
+        fromMs: Date.UTC(2026, 5, 8, 0, 0, 0),
+        toMs: Date.UTC(2026, 5, 16, 0, 0, 0),
+      },
+      browserTimeZone: 'UTC',
+      heatmap: [point],
+      selectedHeatmapCell: { weekday: 1, hour: 9 },
+      heatmapDetail: {
+        point,
+        metricValue: 12,
+        overallBaseline: 12,
+        weekdayBaseline: 12,
+        hourBaseline: 12,
+        overallDelta: 0,
+        weekdayDelta: 0,
+        hourDelta: 0,
+        rank: 1,
+        totalCells: 1,
+      },
+    });
+    const renderer = renderPage();
+    const text = getText(renderer.root);
+
+    expect(text).toContain('usage_analytics.heatmap_contributors_title');
+    expect(text).toContain('usage_analytics.heatmap_detail_date_windows');
+    expect(text).toContain('06/08');
+    expect(text).toContain('06/15');
+    expect(text).toContain('gpt-4o');
+    expect(text).toContain('sk-****7890');
+    expect(text).toContain('openai');
+    expect(text).not.toContain('abcdef1234567890');
   });
 
   it('offers time range and status controls that update usage filters', () => {

@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -43,6 +37,7 @@ import {
 import { useThemeStore } from '@/stores';
 import {
   buildUsageHeatmapChartData,
+  buildUsageHeatmapRangeContext,
   buildModelKeyDistribution,
   buildMonitoringDetailUrl,
   buildOptionValues,
@@ -52,14 +47,15 @@ import {
   anomalyMetricLabelKey,
   DEFAULT_SELECTED_METRICS,
   formatDateTimeLocalValue,
+  formatHeatmapMetricValue,
   formatLocalDateTime,
   formatMetricValue,
   hasUsageData,
   maskApiKeyHash,
   parseDateTimeLocalValue,
   USAGE_ANALYTICS_TABS,
-  USAGE_MATRIX_DIMENSIONS,
-  USAGE_MATRIX_METRICS,
+  USAGE_HEATMAP_METRICS,
+  USAGE_HEATMAP_SCALE_MODES,
   USAGE_METRICS,
   USAGE_SUCCESS_RATE_WATCH_THRESHOLD,
   USAGE_TIME_RANGES,
@@ -73,11 +69,16 @@ import {
   type UsageAnalyticsLatencyFilter,
   type UsageAnalyticsStatus,
   type UsageDrilldownEvent,
+  type UsageHeatmapCellDetail,
+  type UsageHeatmapCellSelection,
+  type UsageHeatmapContributor,
+  type UsageHeatmapHighlight,
+  type UsageHeatmapHighlights,
+  type UsageHeatmapMetricKey,
   type UsageHeatmapPoint,
+  type UsageHeatmapRangeContext,
+  type UsageHeatmapScaleMode,
   type UsageKeyAnomalyRow,
-  type UsageMatrix,
-  type UsageMatrixDimension,
-  type UsageMatrixMetricKey,
   type UsageMetricKey,
   type UsageModelKeyDistributionRow,
   type UsageProviderRow,
@@ -104,6 +105,18 @@ const trendMetricOptions: Array<{ value: UsageTrendMetricKey; labelKey: string }
   { value: 'totalTokens', labelKey: 'usage_analytics.trend_metric_totalTokens' },
   { value: 'estimatedCost', labelKey: 'usage_analytics.trend_metric_estimatedCost' },
 ];
+
+const heatmapMetricOptions: Array<{ value: UsageHeatmapMetricKey; labelKey: string }> =
+  USAGE_HEATMAP_METRICS.map((metric) => ({
+    value: metric,
+    labelKey: `usage_analytics.heatmap_metric_${metric}`,
+  }));
+
+const heatmapScaleOptions: Array<{ value: UsageHeatmapScaleMode; labelKey: string }> =
+  USAGE_HEATMAP_SCALE_MODES.map((mode) => ({
+    value: mode,
+    labelKey: `usage_analytics.heatmap_scale_${mode}`,
+  }));
 
 const chartHeight = 360;
 const compactChartHeight = 220;
@@ -336,6 +349,36 @@ const formatDelta = (value: number) => {
   return `${sign}${(value * 100).toFixed(1)}%`;
 };
 
+const formatHeatmapVisualValue = (
+  metric: UsageHeatmapMetricKey,
+  scaleMode: UsageHeatmapScaleMode,
+  value: number
+) =>
+  scaleMode === 'absolute'
+    ? formatHeatmapMetricValue(metric, value)
+    : `${Math.round((Number.isFinite(value) ? value : 0) * 100)}%`;
+
+const heatmapMetricValueFromDatum = (
+  metric: UsageHeatmapMetricKey,
+  calls = 0,
+  tokens = 0,
+  cost = 0,
+  failureRate = 0
+) => {
+  if (metric === 'estimatedCost') return cost;
+  if (metric === 'totalTokens') return tokens;
+  if (metric === 'failureRate') return failureRate;
+  return calls;
+};
+
+const getHeatmapEventSelection = (event: ECElementEvent): UsageHeatmapCellSelection | null => {
+  const value = event.value;
+  if (!Array.isArray(value)) return null;
+  const [hour, weekday] = value;
+  if (typeof hour !== 'number' || typeof weekday !== 'number') return null;
+  return { weekday, hour };
+};
+
 const escapeHtml = (value: string | number | null | undefined) =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -370,13 +413,6 @@ const getMetricLabel = (key: UsageMetricKey, t: ReturnType<typeof useTranslation
 };
 
 const formatTrendMetricValue = (key: UsageTrendMetricKey, value: number) => {
-  if (key === 'estimatedCost') return formatMetricValue('estimatedCost', value);
-  if (key === 'totalTokens') return formatMetricValue('totalTokens', value);
-  return formatMetricValue('requestCount', value);
-};
-
-const formatMatrixMetricValue = (key: UsageMatrixMetricKey, value: number) => {
-  if (key === 'failureRate') return formatPercent(value);
   if (key === 'estimatedCost') return formatMetricValue('estimatedCost', value);
   if (key === 'totalTokens') return formatMetricValue('totalTokens', value);
   return formatMetricValue('requestCount', value);
@@ -1131,8 +1167,7 @@ const buildHealthTimelineCell = ({
     failureCount: point.failureCount,
     failureRate: point.failureRate,
     id: String(bucketMs),
-    intensity:
-      maxRequests > 0 ? Math.min(1, Math.max(0.18, point.requestCount / maxRequests)) : 0,
+    intensity: maxRequests > 0 ? Math.min(1, Math.max(0.18, point.requestCount / maxRequests)) : 0,
     label,
     requestCount: point.requestCount,
     successCount: point.successCount,
@@ -1256,10 +1291,7 @@ const buildHealthTimelineMatrix = ({
     for (let dayMs = startDayMs; dayMs <= endDayMs; dayMs += usageHealthTimelineDayMs) {
       dayStarts.push(dayMs);
     }
-    const groupSize = Math.max(
-      1,
-      Math.ceil(dayStarts.length / usageHealthTimelineMaxCompactCells)
-    );
+    const groupSize = Math.max(1, Math.ceil(dayStarts.length / usageHealthTimelineMaxCompactCells));
     const dayGroups: number[][] = [];
     for (let index = 0; index < dayStarts.length; index += groupSize) {
       dayGroups.push(dayStarts.slice(index, index + groupSize));
@@ -1373,10 +1405,8 @@ function RequestHealthTimeline({
     [bounds, granularity, i18n.language, timeline]
   );
   const { summary } = matrix;
-  const successRate =
-    summary.requestCount > 0 ? summary.successCount / summary.requestCount : 0;
-  const failureRate =
-    summary.requestCount > 0 ? summary.failureCount / summary.requestCount : 0;
+  const successRate = summary.requestCount > 0 ? summary.successCount / summary.requestCount : 0;
+  const failureRate = summary.requestCount > 0 ? summary.failureCount / summary.requestCount : 0;
 
   if (matrix.cells.length === 0) {
     return (
@@ -1452,9 +1482,7 @@ function RequestHealthTimeline({
               <span
                 key={cell.id}
                 role="listitem"
-                className={`${styles.healthTimelineCell} ${
-                  styles[healthToneClassMap[cell.tone]]
-                }`}
+                className={`${styles.healthTimelineCell} ${styles[healthToneClassMap[cell.tone]]}`}
                 style={{ '--cell-intensity': cell.intensity } as HealthCellStyle}
                 title={title}
                 aria-label={title}
@@ -1624,13 +1652,38 @@ const weekdayLabelKeys = [
   'usage_analytics.weekday_sat',
 ] as const;
 
-function UsageHeatmapChart({ points }: { points: UsageHeatmapPoint[] }) {
+function UsageHeatmapChart({
+  metric,
+  onSelect,
+  points,
+  scaleMode,
+  selectedCell,
+}: {
+  metric: UsageHeatmapMetricKey;
+  onSelect: (cell: UsageHeatmapCellSelection | null) => void;
+  points: UsageHeatmapPoint[];
+  scaleMode: UsageHeatmapScaleMode;
+  selectedCell: UsageHeatmapCellSelection | null;
+}) {
   const { t } = useTranslation();
   const chartTheme = useUsageChartTheme();
   const hours = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
   const weekdays = weekdayLabelKeys.map((key) => t(key));
-  const data = buildUsageHeatmapChartData(points);
-  const maxValue = Math.max(1, ...data.map((point) => point[2]));
+  const data = buildUsageHeatmapChartData(points, metric, scaleMode);
+  const maxVisualValue = Math.max(0, ...data.map((point) => point[2]));
+  const maxValue = maxVisualValue > 0 ? maxVisualValue : 1;
+  const chartData = data.map((point) => {
+    const selected = selectedCell?.hour === point[0] && selectedCell.weekday === point[1];
+    return selected
+      ? {
+          value: point,
+          itemStyle: {
+            borderColor: chartTheme.surface.heatmapEmphasisBorder,
+            borderWidth: 2,
+          },
+        }
+      : point;
+  });
   const option: HeatmapChartOption = {
     animationDuration: 260,
     backgroundColor: 'transparent',
@@ -1643,21 +1696,43 @@ function UsageHeatmapChart({ points }: { points: UsageHeatmapPoint[] }) {
       confine: true,
       formatter: (params: unknown) => {
         const item = params as { value?: number[] };
-        const [hour, weekday, calls, cost, failureRate] = item.value ?? [];
+        const [hour, weekday, visualValue, calls, success, failure, tokens, cost, failureRate] =
+          item.value ?? [];
+        const metricValue = heatmapMetricValueFromDatum(metric, calls, tokens, cost, failureRate);
         return tooltipHtml(
           chartTheme,
           `${tooltipRowHtml(
             chartTheme,
+            escapeHtml(t(`usage_analytics.heatmap_metric_${metric}`)),
+            escapeHtml(formatHeatmapMetricValue(metric, metricValue))
+          )}${tooltipRowHtml(
+            chartTheme,
+            escapeHtml(t('usage_analytics.heatmap_color_value')),
+            escapeHtml(formatHeatmapVisualValue(metric, scaleMode, visualValue ?? 0))
+          )}${tooltipRowHtml(
+            chartTheme,
             escapeHtml(t('usage_analytics.metric_request_count')),
             escapeHtml(compactNumber(calls ?? 0))
+          )}${tooltipRowHtml(
+            chartTheme,
+            escapeHtml(t('usage_analytics.metric_total_tokens')),
+            escapeHtml(compactNumber(tokens ?? 0))
           )}${tooltipRowHtml(
             chartTheme,
             escapeHtml(t('usage_analytics.metric_estimated_cost')),
             escapeHtml(formatMetricValue('estimatedCost', cost ?? 0))
           )}${tooltipRowHtml(
             chartTheme,
+            escapeHtml(t('usage_analytics.metric_failure_count')),
+            escapeHtml(compactNumber(failure ?? 0))
+          )}${tooltipRowHtml(
+            chartTheme,
             escapeHtml(t('usage_analytics.failure_rate')),
             escapeHtml(formatPercent(failureRate ?? 0))
+          )}${tooltipRowHtml(
+            chartTheme,
+            escapeHtml(t('usage_analytics.status_success')),
+            escapeHtml(compactNumber(success ?? 0))
           )}`,
           escapeHtml(`${weekdays[weekday] ?? ''} ${hours[hour] ?? ''}`)
         );
@@ -1668,6 +1743,7 @@ function UsageHeatmapChart({ points }: { points: UsageHeatmapPoint[] }) {
       bottom: 0,
       calculable: true,
       dimension: 2,
+      formatter: (value: unknown) => formatHeatmapVisualValue(metric, scaleMode, Number(value)),
       inRange: { color: chartTheme.heatmapColors },
       left: 'center',
       max: maxValue,
@@ -1691,7 +1767,7 @@ function UsageHeatmapChart({ points }: { points: UsageHeatmapPoint[] }) {
     },
     series: [
       {
-        data,
+        data: chartData,
         encode: { x: 0, y: 1, value: 2, tooltip: [2, 3, 4] },
         emphasis: {
           itemStyle: { borderColor: chartTheme.surface.heatmapEmphasisBorder, borderWidth: 1 },
@@ -1719,7 +1795,322 @@ function UsageHeatmapChart({ points }: { points: UsageHeatmapPoint[] }) {
       className={styles.echartsCanvas}
       style={{ height: 340 }}
       ariaLabel={t('usage_analytics.heatmap_title')}
+      onClick={(event) => onSelect(getHeatmapEventSelection(event))}
     />
+  );
+}
+
+const formatHeatmapWindowLabel = (
+  point: Pick<UsageHeatmapPoint, 'hour' | 'weekday'>,
+  weekdays: string[]
+) => `${weekdays[point.weekday] ?? ''} ${String(point.hour).padStart(2, '0')}:00`;
+
+function HeatmapRangeContextStrip({ context }: { context: UsageHeatmapRangeContext }) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.heatmapContextStrip}>
+      <div>
+        <strong>{t('usage_analytics.heatmap_range_label')}</strong>
+        <span>{context.rangeLabel}</span>
+      </div>
+      <div>
+        <strong>{t('usage_analytics.heatmap_coverage_label')}</strong>
+        <span>
+          {t('usage_analytics.heatmap_coverage_value', {
+            days: context.dayCount,
+            windows: context.sampleWindowCount,
+          })}
+        </span>
+      </div>
+      <div>
+        <strong>{t('usage_analytics.heatmap_bucket_label')}</strong>
+        <span>{t('usage_analytics.heatmap_bucket_hint')}</span>
+      </div>
+    </div>
+  );
+}
+
+function HeatmapContributorGroup({
+  kind,
+  rows,
+  title,
+}: {
+  kind: 'model' | 'apiKey' | 'provider';
+  rows: UsageHeatmapContributor[];
+  title: string;
+}) {
+  const { t } = useTranslation();
+  if (rows.length === 0) return null;
+  return (
+    <div className={styles.heatmapContributorGroup}>
+      <h3>{title}</h3>
+      {rows.map((row) => {
+        const label = kind === 'apiKey' ? maskApiKeyHash(row.key) : row.label || row.key;
+        return (
+          <div key={`${kind}-${row.key}`} className={styles.heatmapContributorRow}>
+            <span>
+              <strong>{label}</strong>
+              <em>
+                {t('usage_analytics.heatmap_contributor_meta', {
+                  cost: formatMetricValue('estimatedCost', row.estimatedCost),
+                  share: formatPercent(row.share),
+                  tokens: compactNumber(row.totalTokens),
+                })}
+              </em>
+            </span>
+            <span className={styles.heatmapContributorCounts}>
+              <b>{compactNumber(row.requestCount)}</b>
+              <small>{formatPercent(row.failureRate)}</small>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HeatmapDetailPanel({
+  detail,
+  metric,
+  onClear,
+  rangeContext,
+  timeZone,
+}: {
+  detail: UsageHeatmapCellDetail;
+  metric: UsageHeatmapMetricKey;
+  onClear: () => void;
+  rangeContext: UsageHeatmapRangeContext;
+  timeZone: string;
+}) {
+  const { t } = useTranslation();
+  const weekdays = weekdayLabelKeys.map((key) => t(key));
+  const cellSample = rangeContext.cellSamples[`${detail.point.weekday}-${detail.point.hour}`];
+  const metricLabel = t(`usage_analytics.heatmap_metric_${metric}`);
+  const metrics = [
+    {
+      label: metricLabel,
+      value: formatHeatmapMetricValue(metric, detail.metricValue),
+    },
+    {
+      label: t('usage_analytics.metric_request_count'),
+      value: compactNumber(detail.point.requestCount),
+    },
+    {
+      label: t('usage_analytics.metric_total_tokens'),
+      value: compactNumber(detail.point.totalTokens),
+    },
+    {
+      label: t('usage_analytics.metric_estimated_cost'),
+      value: formatMetricValue('estimatedCost', detail.point.estimatedCost),
+    },
+    {
+      label: t('usage_analytics.metric_failure_count'),
+      value: compactNumber(detail.point.failureCount),
+    },
+    {
+      label: t('usage_analytics.failure_rate'),
+      value: formatPercent(detail.point.failureRate),
+    },
+  ];
+  const comparisons = [
+    {
+      label: t('usage_analytics.heatmap_compare_overall'),
+      value: detail.overallBaseline,
+      delta: detail.overallDelta,
+    },
+    {
+      label: t('usage_analytics.heatmap_compare_weekday'),
+      value: detail.weekdayBaseline,
+      delta: detail.weekdayDelta,
+    },
+    {
+      label: t('usage_analytics.heatmap_compare_hour'),
+      value: detail.hourBaseline,
+      delta: detail.hourDelta,
+    },
+  ];
+  const contributorGroups = [
+    {
+      kind: 'model' as const,
+      rows: detail.point.modelContributors ?? [],
+      title: t('usage_analytics.heatmap_contributor_models'),
+    },
+    {
+      kind: 'apiKey' as const,
+      rows: detail.point.apiKeyContributors ?? [],
+      title: t('usage_analytics.heatmap_contributor_api_keys'),
+    },
+    {
+      kind: 'provider' as const,
+      rows: detail.point.providerContributors ?? [],
+      title: t('usage_analytics.heatmap_contributor_providers'),
+    },
+  ];
+  const hasContributors = contributorGroups.some((group) => group.rows.length > 0);
+
+  return (
+    <div className={`${styles.panel} ${styles.heatmapDetailPanel}`}>
+      <div className={styles.panelHeader}>
+        <div>
+          <h2>{t('usage_analytics.heatmap_detail_title')}</h2>
+          <p>
+            {t('usage_analytics.heatmap_detail_hint', {
+              time: formatHeatmapWindowLabel(detail.point, weekdays),
+              timeZone,
+            })}
+          </p>
+        </div>
+        <button type="button" onClick={onClear}>
+          {t('usage_analytics.heatmap_clear_selection')}
+        </button>
+      </div>
+      <div className={styles.heatmapDateContext}>
+        {cellSample && cellSample.sampleCount > 0 ? (
+          <>
+            <strong>
+              {t('usage_analytics.heatmap_detail_date_windows', {
+                count: cellSample.sampleCount,
+              })}
+            </strong>
+            <span>
+              {cellSample.dateLabels.map((label) => (
+                <b key={label}>{label}</b>
+              ))}
+              {cellSample.overflowCount > 0 ? (
+                <em>
+                  {t('usage_analytics.heatmap_detail_date_more', {
+                    count: cellSample.overflowCount,
+                  })}
+                </em>
+              ) : null}
+            </span>
+          </>
+        ) : (
+          <strong>{t('usage_analytics.heatmap_detail_date_empty')}</strong>
+        )}
+      </div>
+      <div
+        className={`${styles.heatmapDetailBody} ${
+          hasContributors ? '' : styles.heatmapDetailBodySingle
+        }`}
+      >
+        <div className={styles.heatmapDetailSummary}>
+          <div className={styles.heatmapDetailMetrics}>
+            {metrics.map((item) => (
+              <div key={item.label}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className={styles.heatmapComparisonList}>
+            <div className={styles.heatmapRankBadge}>
+              <span>{t('usage_analytics.heatmap_rank')}</span>
+              <strong>
+                {detail.rank}/{detail.totalCells}
+              </strong>
+            </div>
+            {comparisons.map((item) => (
+              <div key={item.label}>
+                <span>{item.label}</span>
+                <strong>{formatHeatmapMetricValue(metric, item.value)}</strong>
+                <em className={item.delta >= 0 ? styles.deltaUp : styles.deltaDown}>
+                  {formatDelta(item.delta)}
+                </em>
+              </div>
+            ))}
+          </div>
+        </div>
+        {hasContributors ? (
+          <div className={styles.heatmapContributorSection}>
+            <h3>{t('usage_analytics.heatmap_contributors_title')}</h3>
+            <div className={styles.heatmapContributorGrid}>
+              {contributorGroups.map((group) => (
+                <HeatmapContributorGroup
+                  key={group.kind}
+                  kind={group.kind}
+                  rows={group.rows}
+                  title={group.title}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function HeatmapHighlightGroup({
+  emptyLabel,
+  rows,
+  title,
+}: {
+  emptyLabel: string;
+  rows: UsageHeatmapHighlight[];
+  title: string;
+}) {
+  const { t } = useTranslation();
+  const weekdays = weekdayLabelKeys.map((key) => t(key));
+  return (
+    <div className={styles.heatmapHighlightGroup}>
+      <h3>{title}</h3>
+      {rows.length === 0 ? (
+        <span className={styles.shortcutEmpty}>{emptyLabel}</span>
+      ) : (
+        rows.map((row) => (
+          <div key={row.id}>
+            <span>
+              <strong>{formatHeatmapWindowLabel(row.point, weekdays)}</strong>
+              <em>
+                {t('usage_analytics.heatmap_highlight_meta', {
+                  requests: compactNumber(row.point.requestCount),
+                  failures: compactNumber(row.point.failureCount),
+                })}
+              </em>
+            </span>
+            <b>{formatHeatmapMetricValue(row.metric, row.value)}</b>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function HeatmapHighlightsPanel({
+  highlights,
+  timeZone,
+}: {
+  highlights: UsageHeatmapHighlights;
+  timeZone: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <div>
+          <h2>{t('usage_analytics.heatmap_focus_title')}</h2>
+          <p>{t('usage_analytics.heatmap_focus_hint', { timeZone })}</p>
+        </div>
+      </div>
+      <div className={styles.heatmapHighlightGrid}>
+        <HeatmapHighlightGroup
+          title={t('usage_analytics.heatmap_peak_requests')}
+          rows={highlights.requestPeaks}
+          emptyLabel={t('usage_analytics.empty_title')}
+        />
+        <HeatmapHighlightGroup
+          title={t('usage_analytics.heatmap_peak_cost')}
+          rows={highlights.costPeaks}
+          emptyLabel={t('usage_analytics.empty_title')}
+        />
+        <HeatmapHighlightGroup
+          title={t('usage_analytics.heatmap_peak_failure')}
+          rows={highlights.failureRisks}
+          emptyLabel={t('usage_analytics.heatmap_failure_sample_empty')}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1957,66 +2348,6 @@ function EntityTrendChart({
   );
 }
 
-function MatrixHeatmap({ matrix }: { matrix: UsageMatrix }) {
-  const { t } = useTranslation();
-  const cellMap = useMemo(
-    () =>
-      new Map(matrix.cells.map((cell) => [`${cell.rowLabel}\n${cell.columnLabel}`, cell] as const)),
-    [matrix.cells]
-  );
-
-  if (matrix.cells.length === 0) {
-    return (
-      <div className={styles.inlineEmpty}>
-        <IconInbox size={22} />
-        <span>{t('usage_analytics.empty_title')}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={styles.matrixHeatmap}
-      style={
-        {
-          '--matrix-columns': matrix.columnLabels.length,
-        } as CSSProperties
-      }
-    >
-      <span className={styles.matrixCorner}>{t('usage_analytics.col_dimension')}</span>
-      {matrix.columnLabels.map((label) => (
-        <span key={label} className={styles.matrixAxisLabel} title={label}>
-          {label}
-        </span>
-      ))}
-      {matrix.rowLabels.map((rowLabel) => (
-        <div key={rowLabel} className={styles.matrixRow}>
-          <span className={styles.matrixAxisLabel} title={rowLabel}>
-            {rowLabel}
-          </span>
-          {matrix.columnLabels.map((columnLabel) => {
-            const cell = cellMap.get(`${rowLabel}\n${columnLabel}`);
-            const intensity = cell ? Math.max(0.08, cell.value / matrix.maxValue) : 0;
-            return (
-              <span
-                key={`${rowLabel}-${columnLabel}`}
-                className={styles.matrixCell}
-                style={{ '--matrix-intensity': `${Math.round(intensity * 42)}%` } as CSSProperties}
-                title={`${rowLabel} / ${columnLabel}: ${formatMatrixMetricValue(
-                  matrix.metric,
-                  cell?.value ?? 0
-                )}`}
-              >
-                {cell && cell.value > 0 ? formatMatrixMetricValue(matrix.metric, cell.value) : '-'}
-              </span>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function InsightsPanel({
   insights,
   onOpen,
@@ -2079,7 +2410,13 @@ function KeyAnomalyTable({
       <table className={styles.compactTable}>
         <thead>
           <tr>
-            <th>{t(type === 'credential' ? 'usage_analytics.col_credential' : 'usage_analytics.col_api_key')}</th>
+            <th>
+              {t(
+                type === 'credential'
+                  ? 'usage_analytics.col_credential'
+                  : 'usage_analytics.col_api_key'
+              )}
+            </th>
             <th>{t('usage_analytics.col_reason')}</th>
             <th>{t('usage_analytics.col_severity')}</th>
             <th>{t('usage_analytics.col_triggered_at')}</th>
@@ -2096,7 +2433,9 @@ function KeyAnomalyTable({
           ) : (
             rows.slice(0, 8).map((row) => (
               <tr key={row.id}>
-                <td>{type === 'credential' ? row.label : maskApiKeyHash(row.row.apiKeyHash || row.id)}</td>
+                <td>
+                  {type === 'credential' ? row.label : maskApiKeyHash(row.row.apiKeyHash || row.id)}
+                </td>
                 <td>{t(row.reasonKey)}</td>
                 <td>
                   <span className={`${styles.severityBadge} ${styles[`severity${row.severity}`]}`}>
@@ -2108,11 +2447,7 @@ function KeyAnomalyTable({
                 <td>{formatPercent(row.row.failureCount / Math.max(row.row.requestCount, 1))}</td>
                 {onOpen ? (
                   <td>
-                    <button
-                      type="button"
-                      className={styles.linkButton}
-                      onClick={() => onOpen(row)}
-                    >
+                    <button type="button" className={styles.linkButton} onClick={() => onOpen(row)}>
                       {t('usage_analytics.view_request_details')}
                     </button>
                   </td>
@@ -2237,33 +2572,6 @@ function ProviderSharePanel({ rows }: { rows: UsageProviderRow[] }) {
           </span>
         ))
       )}
-    </div>
-  );
-}
-
-function HotCombinationsPanel({ matrix }: { matrix: UsageMatrix }) {
-  const { t } = useTranslation();
-  const rows = [...matrix.cells].sort((left, right) => right.value - left.value).slice(0, 8);
-  return (
-    <div className={styles.panel}>
-      <div className={styles.panelHeader}>
-        <h2>{t('usage_analytics.hot_combinations_title')}</h2>
-      </div>
-      <div className={styles.hotCombinationList}>
-        {rows.length === 0 ? (
-          <span className={styles.shortcutEmpty}>{t('usage_analytics.empty_title')}</span>
-        ) : (
-          rows.map((row) => (
-            <div key={`${row.rowLabel}-${row.columnLabel}`}>
-              <span>
-                <strong>{row.rowLabel}</strong>
-                <em>{row.columnLabel}</em>
-              </span>
-              <b>{formatMatrixMetricValue(matrix.metric, row.value)}</b>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }
@@ -2430,19 +2738,9 @@ function UsageAnalyticsPageInner() {
     value: option.value,
     label: t(option.labelKey),
   }));
-  const matrixDimensionOptions: SelectOption[] = USAGE_MATRIX_DIMENSIONS.map((dimension) => ({
-    value: dimension,
-    label: t(`usage_analytics.matrix_dimension_${dimension}`),
-  }));
-  const matrixMetricOptions: SelectOption[] = USAGE_MATRIX_METRICS.map((metric) => ({
-    value: metric,
-    label: t(`usage_analytics.matrix_metric_${metric}`),
-  }));
   const noData = !usage.loading && !usage.error && !hasUsageData(usage.summary, usage.timeline);
   const rankRowLimit = 8;
-  const visibleModelRows = showAllModels
-    ? usage.modelRows
-    : usage.modelRows.slice(0, rankRowLimit);
+  const visibleModelRows = showAllModels ? usage.modelRows : usage.modelRows.slice(0, rankRowLimit);
   const visibleApiKeyRows = usage.apiKeyRows.slice(0, 8);
   const visibleCredentialRows = usage.credentialRows.slice(0, 8);
   const modelInsights = useMemo(
@@ -2451,10 +2749,6 @@ function UsageAnalyticsPageInner() {
   );
   const credentialInsights = useMemo(
     () => usage.insights.filter((insight) => insight.actionTab === 'credentials'),
-    [usage.insights]
-  );
-  const heatmapInsights = useMemo(
-    () => usage.insights.filter((insight) => insight.actionTab === 'heatmap'),
     [usage.insights]
   );
   const selectedModelKeyDistribution = useMemo(
@@ -2566,6 +2860,10 @@ function UsageAnalyticsPageInner() {
       }),
     [i18n.language, t, usage.summary]
   );
+  const heatmapRangeContext = useMemo(
+    () => buildUsageHeatmapRangeContext(usage.bounds, i18n.language, usage.browserTimeZone),
+    [i18n.language, usage.bounds, usage.browserTimeZone]
+  );
 
   const toggleMetric = (key: UsageMetricKey) => {
     setSelectedMetrics((current) =>
@@ -2657,7 +2955,12 @@ function UsageAnalyticsPageInner() {
                   ? t('usage_analytics.hide_advanced_filters')
                   : t('usage_analytics.show_advanced_filters')}
               </button>
-              <Button variant="secondary" size="sm" onClick={usage.refresh} disabled={usage.loading}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={usage.refresh}
+                disabled={usage.loading}
+              >
                 <IconRefreshCw size={15} />
                 {t('common.refresh')}
               </Button>
@@ -3168,9 +3471,7 @@ function UsageAnalyticsPageInner() {
                 locale={i18n.language}
                 onOpen={(row) =>
                   navigate(
-                    `/monitoring?api_key_hash=${encodeURIComponent(
-                      row.row.apiKeyHash || row.id
-                    )}`
+                    `/monitoring?api_key_hash=${encodeURIComponent(row.row.apiKeyHash || row.id)}`
                   )
                 }
               />
@@ -3266,9 +3567,7 @@ function UsageAnalyticsPageInner() {
                   navigate(
                     `/monitoring?auth_file=${encodeURIComponent(
                       row.row.authFile || ''
-                    )}&project_id=${encodeURIComponent(
-                      row.row.projectId || ''
-                    )}`
+                    )}&project_id=${encodeURIComponent(row.row.projectId || '')}`
                   )
                 }
               />
@@ -3306,42 +3605,79 @@ function UsageAnalyticsPageInner() {
         <>
           <UsageSummarySection cards={heatmapSummaryCards} />
           <section className={styles.chartPanel}>
-            <div className={styles.panelHeader}>
+            <div className={`${styles.panelHeader} ${styles.heatmapPanelHeader}`}>
               <div>
                 <h2>{t('usage_analytics.heatmap_title')}</h2>
-                <p>{t('usage_analytics.heatmap_hint')}</p>
+                <p>
+                  {t('usage_analytics.heatmap_hint')}{' '}
+                  {t('usage_analytics.heatmap_timezone_hint', {
+                    timeZone: usage.browserTimeZone,
+                  })}
+                </p>
+              </div>
+              <div className={styles.heatmapToolbar}>
+                <div
+                  className={`${styles.segmentedControl} ${styles.heatmapSegmented}`}
+                  aria-label={t('usage_analytics.filter_metric')}
+                >
+                  {heatmapMetricOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={usage.heatmapMetric === option.value}
+                      className={`${styles.segmentButton} ${
+                        usage.heatmapMetric === option.value ? styles.segmentButtonActive : ''
+                      }`}
+                      onClick={() => usage.setHeatmapMetric(option.value)}
+                    >
+                      {t(option.labelKey)}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className={`${styles.segmentedControl} ${styles.heatmapSegmented}`}
+                  aria-label={t('usage_analytics.heatmap_scale_label')}
+                >
+                  {heatmapScaleOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={usage.heatmapScaleMode === option.value}
+                      className={`${styles.segmentButton} ${
+                        usage.heatmapScaleMode === option.value ? styles.segmentButtonActive : ''
+                      }`}
+                      onClick={() => usage.setHeatmapScaleMode(option.value)}
+                    >
+                      {t(option.labelKey)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-            <UsageHeatmapChart points={usage.heatmap} />
+            <HeatmapRangeContextStrip context={heatmapRangeContext} />
+            <UsageHeatmapChart
+              metric={usage.heatmapMetric}
+              points={usage.heatmap}
+              scaleMode={usage.heatmapScaleMode}
+              selectedCell={usage.selectedHeatmapCell}
+              onSelect={usage.selectHeatmapCell}
+            />
           </section>
-          <section className={styles.chartPanel}>
-            <div className={styles.panelHeader}>
-              <div>
-                <h2>{t('usage_analytics.heatmap_matrix_title')}</h2>
-                <p>{t('usage_analytics.heatmap_matrix_hint')}</p>
-              </div>
-              <div className={styles.matrixControls}>
-                <Select
-                  value={usage.matrixDimension}
-                  options={matrixDimensionOptions}
-                  onChange={(value) => usage.setMatrixDimension(value as UsageMatrixDimension)}
-                  ariaLabel={t('usage_analytics.filter_dimension')}
-                  triggerClassName={styles.compactSelectTrigger}
-                />
-                <Select
-                  value={usage.matrixMetric}
-                  options={matrixMetricOptions}
-                  onChange={(value) => usage.setMatrixMetric(value as UsageMatrixMetricKey)}
-                  ariaLabel={t('usage_analytics.filter_metric')}
-                  triggerClassName={styles.compactSelectTrigger}
-                />
-              </div>
-            </div>
-            <MatrixHeatmap matrix={usage.matrix} />
-          </section>
-          <section className={styles.analysisGrid}>
-            <HotCombinationsPanel matrix={usage.matrix} />
-            <InsightsPanel insights={heatmapInsights} onOpen={usage.setActiveTab} />
+          <section className={styles.heatmapWorkspace}>
+            {usage.heatmapDetail ? (
+              <HeatmapDetailPanel
+                detail={usage.heatmapDetail}
+                metric={usage.heatmapMetric}
+                rangeContext={heatmapRangeContext}
+                timeZone={usage.browserTimeZone}
+                onClear={() => usage.selectHeatmapCell(null)}
+              />
+            ) : (
+              <HeatmapHighlightsPanel
+                highlights={usage.heatmapHighlights}
+                timeZone={usage.browserTimeZone}
+              />
+            )}
           </section>
         </>
       ) : null}
@@ -3548,9 +3884,7 @@ function RankTable({
             {type !== 'credential' ? (
               <th>{t('usage_analytics.metric_average_cost_per_call')}</th>
             ) : null}
-            {type !== 'credential' ? (
-              <th>{t('usage_analytics.metric_failure_count')}</th>
-            ) : null}
+            {type !== 'credential' ? <th>{t('usage_analytics.metric_failure_count')}</th> : null}
             <th>{t('usage_analytics.success_rate')}</th>
             <th>{t('usage_analytics.cost_share')}</th>
           </tr>
@@ -3597,8 +3931,7 @@ function RankTable({
                 ) : null}
                 <td
                   className={
-                    row.requestCount > 0 &&
-                    row.successRate < USAGE_SUCCESS_RATE_WATCH_THRESHOLD
+                    row.requestCount > 0 && row.successRate < USAGE_SUCCESS_RATE_WATCH_THRESHOLD
                       ? styles.tonebad
                       : ''
                   }
@@ -3650,9 +3983,7 @@ function DetailPanel({
           </div>
           <div>
             <span>{t('usage_analytics.average_cost')}</span>
-            <strong>
-              {formatMetricValue('estimatedCost', computeRowAverageCostPerCall(row))}
-            </strong>
+            <strong>{formatMetricValue('estimatedCost', computeRowAverageCostPerCall(row))}</strong>
           </div>
           <div>
             <span>{t('usage_analytics.cache_read_rate')}</span>

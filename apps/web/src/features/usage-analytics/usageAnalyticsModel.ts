@@ -5,6 +5,7 @@ import type {
   MonitoringAnalyticsCredentialStatRow,
   MonitoringAnalyticsEventRow,
   MonitoringAnalyticsFilters,
+  MonitoringAnalyticsHeatmapContributor,
   MonitoringAnalyticsHeatmapPoint,
   MonitoringAnalyticsInclude,
   MonitoringAnalyticsModelStat,
@@ -22,13 +23,7 @@ export type UsageAnalyticsTab =
   | 'apiKeys'
   | 'credentials'
   | 'heatmap';
-export type UsageAnalyticsTimeRange =
-  | '24h'
-  | 'today'
-  | 'yesterday'
-  | '7d'
-  | '30d'
-  | 'custom';
+export type UsageAnalyticsTimeRange = '24h' | 'today' | 'yesterday' | '7d' | '30d' | 'custom';
 export type UsageAnalyticsGranularity = 'auto' | 'hour' | 'day';
 export type UsageAnalyticsResolvedGranularity = 'hour' | 'day';
 export type UsageAnalyticsStatus = 'all' | 'success' | 'failed';
@@ -63,12 +58,10 @@ export type UsageMetricKey =
   | 'cachedTokens'
   | 'estimatedCost';
 export type UsageTrendMetricKey = 'requestCount' | 'totalTokens' | 'estimatedCost';
-export type UsageMatrixMetricKey =
-  | 'requestCount'
-  | 'totalTokens'
-  | 'estimatedCost'
-  | 'failureRate';
+export type UsageMatrixMetricKey = 'requestCount' | 'totalTokens' | 'estimatedCost' | 'failureRate';
 export type UsageMatrixDimension = 'apiKeyModel' | 'authFileModel' | 'providerModel';
+export type UsageHeatmapMetricKey = UsageMatrixMetricKey;
+export type UsageHeatmapScaleMode = 'absolute' | 'byWeekday' | 'byHour';
 
 export type UsageMetricDefinition = {
   key: UsageMetricKey;
@@ -246,15 +239,80 @@ export type UsageHeatmapPoint = {
   totalTokens: number;
   estimatedCost: number;
   failureRate: number;
+  modelContributors?: UsageHeatmapContributor[];
+  apiKeyContributors?: UsageHeatmapContributor[];
+  providerContributors?: UsageHeatmapContributor[];
+};
+
+export type UsageHeatmapContributor = {
+  key: string;
+  label: string;
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  totalTokens: number;
+  estimatedCost: number;
+  failureRate: number;
+  share: number;
 };
 
 export type UsageHeatmapChartDatum = [
   hour: number,
   weekday: number,
+  visualValue: number,
   requestCount: number,
+  successCount: number,
+  failureCount: number,
+  totalTokens: number,
   estimatedCost: number,
   failureRate: number,
 ];
+
+export type UsageHeatmapCellSelection = {
+  weekday: number;
+  hour: number;
+};
+
+export type UsageHeatmapCellDetail = {
+  point: UsageHeatmapPoint;
+  metricValue: number;
+  overallBaseline: number;
+  weekdayBaseline: number;
+  hourBaseline: number;
+  overallDelta: number;
+  weekdayDelta: number;
+  hourDelta: number;
+  rank: number;
+  totalCells: number;
+};
+
+export type UsageHeatmapCellSample = {
+  sampleCount: number;
+  dateLabels: string[];
+  overflowCount: number;
+};
+
+export type UsageHeatmapRangeContext = {
+  fromLabel: string;
+  toLabel: string;
+  rangeLabel: string;
+  dayCount: number;
+  sampleWindowCount: number;
+  cellSamples: Record<string, UsageHeatmapCellSample>;
+};
+
+export type UsageHeatmapHighlight = {
+  id: string;
+  point: UsageHeatmapPoint;
+  metric: UsageHeatmapMetricKey;
+  value: number;
+};
+
+export type UsageHeatmapHighlights = {
+  requestPeaks: UsageHeatmapHighlight[];
+  costPeaks: UsageHeatmapHighlight[];
+  failureRisks: UsageHeatmapHighlight[];
+};
 
 export type UsageServerAnomaly = {
   bucketMs: number;
@@ -411,8 +469,22 @@ export const USAGE_MATRIX_METRICS: UsageMatrixMetricKey[] = [
   'failureRate',
 ];
 
+export const USAGE_HEATMAP_METRICS: UsageHeatmapMetricKey[] = [
+  'requestCount',
+  'totalTokens',
+  'estimatedCost',
+  'failureRate',
+];
+
+export const USAGE_HEATMAP_SCALE_MODES: UsageHeatmapScaleMode[] = [
+  'absolute',
+  'byWeekday',
+  'byHour',
+];
+
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const USAGE_HEATMAP_FAILURE_MIN_REQUESTS = 5;
 
 const toNumber = (value: unknown): number => {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -535,13 +607,7 @@ export const buildUsageAnalyticsFilters = (
   filters: Partial<
     Pick<
       UsageAnalyticsFiltersState,
-      | 'model'
-      | 'apiKeyHash'
-      | 'provider'
-      | 'authFile'
-      | 'status'
-      | 'minLatencyMs'
-      | 'cacheStatus'
+      'model' | 'apiKeyHash' | 'provider' | 'authFile' | 'status' | 'minLatencyMs' | 'cacheStatus'
     >
   >
 ): MonitoringAnalyticsFilters => {
@@ -672,8 +738,10 @@ export const buildUsageTimeline = (
       estimatedCost: toNumber(point.cost),
       successCount,
       failureCount,
-      successRate: toNumber(point.success_rate) || (requestCount > 0 ? successCount / requestCount : 0),
-      failureRate: toNumber(point.failure_rate) || (requestCount > 0 ? failureCount / requestCount : 0),
+      successRate:
+        toNumber(point.success_rate) || (requestCount > 0 ? successCount / requestCount : 0),
+      failureRate:
+        toNumber(point.failure_rate) || (requestCount > 0 ? failureCount / requestCount : 0),
       averageLatencyMs: toNullableNumber(point.average_latency_ms),
       p95LatencyMs: toNullableNumber(point.p95_latency_ms),
       p95TtftMs: toNullableNumber(point.p95_ttft_ms),
@@ -709,6 +777,188 @@ const sumUsageRows = (rows: UsageRankRow[], metric: UsageTrendMetricKey) =>
   rows.reduce((sum, row) => sum + usageRankMetricValue(row, metric), 0);
 
 const safeShare = (value: number, total: number) => (total > 0 ? value / total : 0);
+
+export const getUsageHeatmapMetricValue = (
+  point: UsageHeatmapPoint,
+  metric: UsageHeatmapMetricKey
+) => {
+  if (metric === 'estimatedCost') return point.estimatedCost;
+  if (metric === 'totalTokens') return point.totalTokens;
+  if (metric === 'failureRate') return point.failureRate;
+  return point.requestCount;
+};
+
+const isValidUsageHeatmapPoint = (point: UsageHeatmapPoint) =>
+  point.requestCount > 0 &&
+  Number.isInteger(point.weekday) &&
+  point.weekday >= 0 &&
+  point.weekday < 7 &&
+  Number.isInteger(point.hour) &&
+  point.hour >= 0 &&
+  point.hour < 24;
+
+const heatmapBaseline = (points: UsageHeatmapPoint[], metric: UsageHeatmapMetricKey) => {
+  if (points.length === 0) return 0;
+  if (metric === 'failureRate') {
+    const failures = points.reduce((sum, point) => sum + point.failureCount, 0);
+    const requests = points.reduce((sum, point) => sum + point.requestCount, 0);
+    return safeShare(failures, requests);
+  }
+  return (
+    points.reduce((sum, point) => sum + getUsageHeatmapMetricValue(point, metric), 0) /
+    points.length
+  );
+};
+
+const metricDelta = (current: number, baseline: number) => {
+  if (baseline <= 0) return current > 0 ? 1 : 0;
+  return (current - baseline) / baseline;
+};
+
+const usageHeatmapPointId = (point: Pick<UsageHeatmapPoint, 'weekday' | 'hour'>) =>
+  `${point.weekday}-${point.hour}`;
+
+const USAGE_HEATMAP_SAMPLE_PREVIEW_LIMIT = 4;
+const WEEKDAY_INDEX_BY_SHORT_NAME: Record<string, number> = {
+  Fri: 5,
+  Mon: 1,
+  Sat: 6,
+  Sun: 0,
+  Thu: 4,
+  Tue: 2,
+  Wed: 3,
+};
+
+const normalizeIntlTimeZone = (timeZone: string | null | undefined) => {
+  const candidate = String(timeZone ?? '').trim() || 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date(0));
+    return candidate;
+  } catch {
+    return 'UTC';
+  }
+};
+
+const partValue = (parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes) =>
+  parts.find((part) => part.type === type)?.value ?? '';
+
+const getHeatmapZonedHour = (timestampMs: number, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+    month: '2-digit',
+    timeZone,
+    weekday: 'short',
+    year: 'numeric',
+  }).formatToParts(new Date(timestampMs));
+  const weekday = WEEKDAY_INDEX_BY_SHORT_NAME[partValue(parts, 'weekday')];
+  const hour = Number(partValue(parts, 'hour'));
+  const year = partValue(parts, 'year');
+  const month = partValue(parts, 'month');
+  const day = partValue(parts, 'day');
+  if (
+    !Number.isInteger(weekday) ||
+    !Number.isInteger(hour) ||
+    hour < 0 ||
+    hour > 23 ||
+    !year ||
+    !month ||
+    !day
+  ) {
+    return null;
+  }
+  return {
+    dateKey: `${year}-${month}-${day}`,
+    hour,
+    weekday,
+  };
+};
+
+const formatHeatmapContextDateTime = (timestampMs: number, locale: string, timeZone: string) =>
+  new Intl.DateTimeFormat(locale || undefined, {
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+    month: '2-digit',
+    timeZone,
+  }).format(new Date(timestampMs));
+
+const formatHeatmapSampleDateLabel = (timestampMs: number, locale: string, timeZone: string) =>
+  new Intl.DateTimeFormat(locale || undefined, {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone,
+  }).format(new Date(timestampMs));
+
+export const buildUsageHeatmapRangeContext = (
+  bounds: { fromMs?: number; toMs?: number } | null | undefined,
+  locale: string,
+  timeZone: string
+): UsageHeatmapRangeContext => {
+  const fromMs = Number(bounds?.fromMs);
+  const toMs = Number(bounds?.toMs);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) {
+    return {
+      cellSamples: {},
+      dayCount: 0,
+      fromLabel: '-',
+      rangeLabel: '-',
+      sampleWindowCount: 0,
+      toLabel: '-',
+    };
+  }
+
+  const safeTimeZone = normalizeIntlTimeZone(timeZone);
+  const cellSamples: Record<string, UsageHeatmapCellSample> = {};
+  const dateKeys = new Set<string>();
+  const startMs = Math.floor(fromMs / HOUR_MS) * HOUR_MS;
+  let sampleWindowCount = 0;
+
+  for (let timestampMs = startMs; timestampMs < toMs; timestampMs += HOUR_MS) {
+    if (timestampMs + HOUR_MS <= fromMs) continue;
+    const zonedHour = getHeatmapZonedHour(timestampMs, safeTimeZone);
+    if (!zonedHour) continue;
+
+    sampleWindowCount += 1;
+    dateKeys.add(zonedHour.dateKey);
+
+    const cellKey = `${zonedHour.weekday}-${zonedHour.hour}`;
+    const sample =
+      cellSamples[cellKey] ??
+      ({
+        dateLabels: [],
+        overflowCount: 0,
+        sampleCount: 0,
+      } satisfies UsageHeatmapCellSample);
+    sample.sampleCount += 1;
+
+    const dateLabel = formatHeatmapSampleDateLabel(timestampMs, locale, safeTimeZone);
+    if (
+      sample.dateLabels.length < USAGE_HEATMAP_SAMPLE_PREVIEW_LIMIT &&
+      !sample.dateLabels.includes(dateLabel)
+    ) {
+      sample.dateLabels.push(dateLabel);
+    }
+    cellSamples[cellKey] = sample;
+  }
+
+  Object.values(cellSamples).forEach((sample) => {
+    sample.overflowCount = Math.max(0, sample.sampleCount - sample.dateLabels.length);
+  });
+
+  const fromLabel = formatHeatmapContextDateTime(fromMs, locale, safeTimeZone);
+  const toLabel = formatHeatmapContextDateTime(toMs, locale, safeTimeZone);
+  return {
+    cellSamples,
+    dayCount: dateKeys.size,
+    fromLabel,
+    rangeLabel: `${fromLabel} - ${toLabel}`,
+    sampleWindowCount,
+    toLabel,
+  };
+};
 
 const normalizeProviderLabel = (value: string | undefined) => {
   const normalized = String(value ?? '').trim();
@@ -906,7 +1156,9 @@ export const buildCredentialRows = (
     );
 };
 
-const buildProviderModelsFromEntities = (rows: UsageRankRow[]): Map<string, Map<string, UsageRankRow>> => {
+const buildProviderModelsFromEntities = (
+  rows: UsageRankRow[]
+): Map<string, Map<string, UsageRankRow>> => {
   const providerModels = new Map<string, Map<string, UsageRankRow>>();
   rows.forEach((row) => {
     const provider = normalizeProviderLabel(row.provider);
@@ -1040,7 +1292,10 @@ export const buildProviderRows = (
               })
             : row.cacheRate,
         share: safeShare(row.requestCount, totalRequests),
-        models: models.map((model) => ({ ...model, share: safeShare(model.totalTokens, modelTotal) })),
+        models: models.map((model) => ({
+          ...model,
+          share: safeShare(model.totalTokens, modelTotal),
+        })),
       };
     })
     .sort(
@@ -1256,20 +1511,22 @@ export const buildCredentialQuotaRows = (
   nowMs: number
 ): UsageCredentialQuotaRow[] =>
   rows.slice(0, 8).map((row, index) => {
-    const limit = Math.max(50, Math.ceil(Math.max(row.estimatedCost, 1) * (index === 0 ? 1 : 1.25)));
+    const limit = Math.max(
+      50,
+      Math.ceil(Math.max(row.estimatedCost, 1) * (index === 0 ? 1 : 1.25))
+    );
     const used = Math.min(limit, row.estimatedCost);
     const usedRate = safeShare(used, limit);
     return {
       id: row.id,
       label: row.label,
-      plan:
-        row.provider?.toLowerCase().includes('anthropic')
-          ? 'Claude Pro'
-          : row.provider?.toLowerCase().includes('azure')
-            ? 'Azure PayGo'
-            : row.provider?.toLowerCase().includes('aws')
-              ? 'On-Demand'
-              : 'Pay as You Go',
+      plan: row.provider?.toLowerCase().includes('anthropic')
+        ? 'Claude Pro'
+        : row.provider?.toLowerCase().includes('azure')
+          ? 'Azure PayGo'
+          : row.provider?.toLowerCase().includes('aws')
+            ? 'On-Demand'
+            : 'Pay as You Go',
       used,
       limit,
       remaining: Math.max(0, limit - used),
@@ -1365,6 +1622,21 @@ export const buildUsageInsights = ({
   return insights.slice(0, 4);
 };
 
+const buildUsageHeatmapContributors = (
+  contributors: MonitoringAnalyticsHeatmapContributor[] = []
+): UsageHeatmapContributor[] =>
+  contributors.map((contributor) => ({
+    key: contributor.key || '',
+    label: contributor.label || contributor.key || '',
+    requestCount: toNumber(contributor.calls),
+    successCount: toNumber(contributor.success),
+    failureCount: toNumber(contributor.failure),
+    totalTokens: toNumber(contributor.tokens),
+    estimatedCost: toNumber(contributor.cost),
+    failureRate: toNumber(contributor.failure_rate),
+    share: toNumber(contributor.share),
+  }));
+
 export const buildUsageHeatmap = (
   points: MonitoringAnalyticsHeatmapPoint[] = []
 ): UsageHeatmapPoint[] =>
@@ -1377,29 +1649,116 @@ export const buildUsageHeatmap = (
     totalTokens: toNumber(point.tokens),
     estimatedCost: toNumber(point.cost),
     failureRate: toNumber(point.failure_rate),
+    modelContributors: buildUsageHeatmapContributors(point.model_contributors),
+    apiKeyContributors: buildUsageHeatmapContributors(point.api_key_contributors),
+    providerContributors: buildUsageHeatmapContributors(point.provider_contributors),
   }));
 
 export const buildUsageHeatmapChartData = (
-  points: UsageHeatmapPoint[]
-): UsageHeatmapChartDatum[] =>
-  points
-    .filter(
-      (point) =>
-        point.requestCount > 0 &&
-        Number.isInteger(point.weekday) &&
-        point.weekday >= 0 &&
-        point.weekday < 7 &&
-        Number.isInteger(point.hour) &&
-        point.hour >= 0 &&
-        point.hour < 24
-    )
-    .map((point) => [
+  points: UsageHeatmapPoint[],
+  metric: UsageHeatmapMetricKey = 'requestCount',
+  scaleMode: UsageHeatmapScaleMode = 'absolute'
+): UsageHeatmapChartDatum[] => {
+  const validPoints = points.filter(isValidUsageHeatmapPoint);
+  const groupedMax = new Map<string, number>();
+  if (scaleMode !== 'absolute') {
+    validPoints.forEach((point) => {
+      const groupKey =
+        scaleMode === 'byWeekday' ? `weekday-${point.weekday}` : `hour-${point.hour}`;
+      groupedMax.set(
+        groupKey,
+        Math.max(groupedMax.get(groupKey) ?? 0, getUsageHeatmapMetricValue(point, metric))
+      );
+    });
+  }
+
+  return validPoints.map((point) => {
+    const rawValue = getUsageHeatmapMetricValue(point, metric);
+    const groupKey = scaleMode === 'byWeekday' ? `weekday-${point.weekday}` : `hour-${point.hour}`;
+    const visualValue =
+      scaleMode === 'absolute' ? rawValue : safeShare(rawValue, groupedMax.get(groupKey) ?? 0);
+    return [
       point.hour,
       point.weekday,
+      visualValue,
       point.requestCount,
+      point.successCount,
+      point.failureCount,
+      point.totalTokens,
       point.estimatedCost,
       point.failureRate,
-    ]);
+    ];
+  });
+};
+
+export const buildUsageHeatmapCellDetail = (
+  points: UsageHeatmapPoint[],
+  selection: UsageHeatmapCellSelection | null,
+  metric: UsageHeatmapMetricKey
+): UsageHeatmapCellDetail | null => {
+  if (!selection) return null;
+  const validPoints = points.filter(isValidUsageHeatmapPoint);
+  const point =
+    validPoints.find(
+      (item) => item.weekday === selection.weekday && item.hour === selection.hour
+    ) ?? null;
+  if (!point) return null;
+
+  const metricValue = getUsageHeatmapMetricValue(point, metric);
+  const sameWeekday = validPoints.filter((item) => item.weekday === point.weekday);
+  const sameHour = validPoints.filter((item) => item.hour === point.hour);
+  const overallBaseline = heatmapBaseline(validPoints, metric);
+  const weekdayBaseline = heatmapBaseline(sameWeekday, metric);
+  const hourBaseline = heatmapBaseline(sameHour, metric);
+  const ranked = [...validPoints].sort(
+    (left, right) =>
+      getUsageHeatmapMetricValue(right, metric) - getUsageHeatmapMetricValue(left, metric)
+  );
+
+  return {
+    point,
+    metricValue,
+    overallBaseline,
+    weekdayBaseline,
+    hourBaseline,
+    overallDelta: metricDelta(metricValue, overallBaseline),
+    weekdayDelta: metricDelta(metricValue, weekdayBaseline),
+    hourDelta: metricDelta(metricValue, hourBaseline),
+    rank: ranked.findIndex((item) => usageHeatmapPointId(item) === usageHeatmapPointId(point)) + 1,
+    totalCells: validPoints.length,
+  };
+};
+
+const buildHeatmapHighlightsForMetric = (
+  points: UsageHeatmapPoint[],
+  metric: UsageHeatmapMetricKey,
+  limit = 3
+): UsageHeatmapHighlight[] =>
+  points
+    .filter(isValidUsageHeatmapPoint)
+    .filter(
+      (point) =>
+        metric !== 'failureRate' || point.requestCount >= USAGE_HEATMAP_FAILURE_MIN_REQUESTS
+    )
+    .sort(
+      (left, right) =>
+        getUsageHeatmapMetricValue(right, metric) - getUsageHeatmapMetricValue(left, metric)
+    )
+    .slice(0, limit)
+    .map((point) => ({
+      id: `${metric}-${usageHeatmapPointId(point)}`,
+      point,
+      metric,
+      value: getUsageHeatmapMetricValue(point, metric),
+    }));
+
+export const buildUsageHeatmapHighlights = (
+  points: UsageHeatmapPoint[] = []
+): UsageHeatmapHighlights => ({
+  requestPeaks: buildHeatmapHighlightsForMetric(points, 'requestCount'),
+  costPeaks: buildHeatmapHighlightsForMetric(points, 'estimatedCost'),
+  failureRisks: buildHeatmapHighlightsForMetric(points, 'failureRate'),
+});
 
 export const buildServerAnomalyPoints = (
   points: MonitoringAnalyticsAnomalyPoint[] = []
@@ -1484,7 +1843,12 @@ export const adaptUsageAnalyticsData = (
   const modelRows = buildModelRows(data?.model_stats ?? [], summary);
   const apiKeyRows = buildApiKeyRows(data?.api_key_stats ?? [], summary, keyword);
   const credentialRows = buildCredentialRows(data?.credential_stats ?? [], summary);
-  const providerRows = buildProviderRows(data?.channel_share ?? [], apiKeyRows, credentialRows, summary);
+  const providerRows = buildProviderRows(
+    data?.channel_share ?? [],
+    apiKeyRows,
+    credentialRows,
+    summary
+  );
   return {
     summary,
     summaryComparison: data?.summary_comparison,
@@ -1566,9 +1930,7 @@ export const analyzeUsageBucket = (
       : 0,
     failureRate: previousPoint ? point.failureRate - previousPoint.failureRate : 0,
     averageLatencyMs:
-      previousPoint &&
-      previousPoint.averageLatencyMs !== null &&
-      point.averageLatencyMs !== null
+      previousPoint && previousPoint.averageLatencyMs !== null && point.averageLatencyMs !== null
         ? percentChange(point.averageLatencyMs, previousPoint.averageLatencyMs)
         : 0,
   };
@@ -1615,7 +1977,13 @@ export const analyzeUsageBucket = (
       delta: changes.averageLatencyMs,
     });
   }
-  return { point, previousPoint, anomalies, changes, causeKeys: buildUsageAnomalyCauseKeys(changes) };
+  return {
+    point,
+    previousPoint,
+    anomalies,
+    changes,
+    causeKeys: buildUsageAnomalyCauseKeys(changes),
+  };
 };
 
 export const buildUsageAnomalyCauseKeys = (
@@ -1716,6 +2084,12 @@ export const buildOptionValues = (values: Array<string | undefined | null>) =>
   );
 
 export const formatMetricValue = (key: UsageMetricKey, value: number) => {
+  if (key === 'estimatedCost') return formatUsd(value);
+  return formatCompactNumber(value);
+};
+
+export const formatHeatmapMetricValue = (key: UsageHeatmapMetricKey, value: number) => {
+  if (key === 'failureRate') return `${((Number.isFinite(value) ? value : 0) * 100).toFixed(1)}%`;
   if (key === 'estimatedCost') return formatUsd(value);
   return formatCompactNumber(value);
 };

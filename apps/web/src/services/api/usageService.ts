@@ -628,6 +628,18 @@ export interface MonitoringAnalyticsHourlyPoint {
   tokens: number;
 }
 
+export interface MonitoringAnalyticsHeatmapContributor {
+  key: string;
+  label?: string;
+  calls: number;
+  success: number;
+  failure: number;
+  tokens: number;
+  cost: number;
+  failure_rate: number;
+  share: number;
+}
+
 export interface MonitoringAnalyticsHeatmapPoint {
   weekday: number;
   hour: number;
@@ -637,6 +649,9 @@ export interface MonitoringAnalyticsHeatmapPoint {
   tokens: number;
   cost: number;
   failure_rate: number;
+  model_contributors?: MonitoringAnalyticsHeatmapContributor[];
+  api_key_contributors?: MonitoringAnalyticsHeatmapContributor[];
+  provider_contributors?: MonitoringAnalyticsHeatmapContributor[];
 }
 
 export type MonitoringAnalyticsAnomalySeverity = 'low' | 'medium' | 'high' | string;
@@ -1311,7 +1326,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.post<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/ignore`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/ignore`
+        ),
         undefined,
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
@@ -1329,7 +1347,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.post<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/resolve`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/resolve`
+        ),
         undefined,
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
@@ -1347,7 +1368,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.post<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/enable`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/enable`
+        ),
         undefined,
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
@@ -1365,7 +1389,10 @@ export const usageServiceApi = {
   ): Promise<AccountActionCandidateResponse> => {
     return withUsageServiceError(async () => {
       const response = await axios.delete<AccountActionCandidateResponse>(
-        buildUrl(base, `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/auth-file`),
+        buildUrl(
+          base,
+          `/v0/management/account-action-candidates/${encodeURIComponent(String(id))}/auth-file`
+        ),
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),

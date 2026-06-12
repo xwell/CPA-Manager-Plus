@@ -1692,6 +1692,384 @@
   }
 }
 
+.heatmapPanelHeader {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.heatmapToolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.heatmapSegmented {
+  max-width: 100%;
+  border-color: color-mix(in srgb, var(--usage-primary) 22%, var(--usage-border));
+  background: color-mix(in srgb, var(--usage-primary) 6%, var(--usage-surface));
+
+  .segmentButton {
+    min-height: 32px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .segmentButtonActive,
+  .segmentButtonActive:hover {
+    border-left-color: transparent;
+    background: var(--usage-primary);
+    color: #fff;
+    font-weight: 850;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--usage-primary) 74%, #fff) inset,
+      0 6px 14px color-mix(in srgb, var(--usage-primary) 18%, transparent);
+  }
+}
+
+.heatmapContextStrip {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.2fr) minmax(180px, 0.8fr) minmax(240px, 1fr);
+  gap: 10px;
+  min-width: 0;
+
+  div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--usage-primary) 14%, var(--usage-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--usage-primary) 4%, var(--usage-muted-surface));
+  }
+
+  strong {
+    color: var(--usage-muted);
+    font-size: 11px;
+    font-weight: 850;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--usage-text);
+    font-size: 12px;
+    font-weight: 760;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.heatmapWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.heatmapDetailPanel {
+  gap: 16px;
+}
+
+.heatmapDetailBody {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(420px, 1.05fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.heatmapDetailBodySingle {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.heatmapDetailSummary {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.heatmapDateContext {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--usage-primary) 14%, var(--usage-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--usage-primary) 4%, var(--usage-muted-surface));
+
+  strong {
+    flex: 0 0 auto;
+    color: var(--usage-muted);
+    font-size: 12px;
+    font-weight: 850;
+  }
+
+  span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  b,
+  em {
+    flex: 0 0 auto;
+    min-height: 24px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 850;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  b {
+    background: var(--usage-surface);
+    color: var(--usage-text);
+  }
+
+  em {
+    background: color-mix(in srgb, var(--usage-primary) 9%, var(--usage-surface));
+    color: var(--usage-primary);
+  }
+}
+
+.heatmapDetailMetrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  div {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--usage-border);
+    border-radius: 12px;
+    background: var(--usage-muted-surface);
+  }
+
+  span {
+    color: var(--usage-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--usage-text);
+    font-size: 18px;
+    font-weight: 850;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.heatmapComparisonList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  div {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--usage-border);
+    border-radius: 12px;
+    background: var(--usage-surface);
+  }
+
+  span {
+    color: var(--usage-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  em {
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 800;
+  }
+}
+
+.heatmapRankBadge {
+  background: color-mix(in srgb, var(--usage-primary) 8%, var(--usage-surface)) !important;
+}
+
+.heatmapContributorSection {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+
+  > h3 {
+    margin: 0;
+    color: var(--usage-muted);
+    font-size: 13px;
+    font-weight: 850;
+  }
+}
+
+.heatmapContributorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.heatmapContributorGroup {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+
+  h3 {
+    margin: 0;
+    color: var(--usage-text);
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  .heatmapContributorRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--usage-border);
+    border-radius: 12px;
+    background: var(--usage-muted-surface);
+  }
+
+  span {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  strong,
+  em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    font-size: 13px;
+  }
+
+  em {
+    color: var(--usage-muted);
+    font-size: 12px;
+    font-style: normal;
+  }
+
+  b {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.heatmapContributorCounts {
+  justify-items: end;
+
+  small {
+    color: var(--usage-muted);
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.deltaUp {
+  color: var(--usage-primary);
+}
+
+.deltaDown {
+  color: var(--success-color);
+}
+
+.heatmapHighlightGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.heatmapHighlightGroup {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+
+  h3 {
+    margin: 0;
+    color: var(--usage-muted);
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--usage-border);
+    border-radius: 12px;
+    background: var(--usage-muted-surface);
+  }
+
+  span {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  strong,
+  em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--usage-text);
+    font-size: 13px;
+  }
+
+  em {
+    color: var(--usage-muted);
+    font-size: 12px;
+    font-style: normal;
+  }
+
+  b {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 .matrixControls {
   display: flex;
   align-items: center;
@@ -1822,6 +2200,8 @@
   }
 
   .analysisGrid,
+  .heatmapContextStrip,
+  .heatmapDetailBody,
   .overviewHeroGrid,
   .dualChartGrid,
   .trendEntityGrid,
@@ -1831,6 +2211,12 @@
   }
 
   .anomalyMetrics {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmapHighlightGrid,
+  .heatmapContributorGrid,
+  .heatmapComparisonList {
     grid-template-columns: 1fr;
   }
 
@@ -1908,6 +2294,24 @@
 
   .matrixControls {
     justify-content: flex-start;
+  }
+
+  .heatmapToolbar {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .heatmapSegmented {
+    width: 100%;
+  }
+
+  .heatmapDetailMetrics {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmapDateContext {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .trendEntityHeader {
