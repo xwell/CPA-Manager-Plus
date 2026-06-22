@@ -10,6 +10,7 @@ const { mocks } = vi.hoisted(() => {
   return {
     mocks: {
       connectionStatus: 'connected' as 'connected' | 'disconnected',
+      managementKey: 'test-key' as string,
       list: vi.fn(),
       showNotification: vi.fn(),
       showConfirmation: vi.fn(),
@@ -114,7 +115,7 @@ vi.mock('@/stores', () => ({
     selector({
       connectionStatus: mocks.connectionStatus,
       apiBase: 'http://manager.local:18317',
-      managementKey: 'test-key',
+      managementKey: mocks.managementKey,
     }),
   useThemeStore: (selector: (state: { resolvedTheme: 'dark' }) => unknown) =>
     selector({ resolvedTheme: 'dark' }),
@@ -275,6 +276,21 @@ const setManagerServiceBase = (value: string) => {
   };
 };
 
+const setManagementKey = (value: string) => {
+  mocks.managementKey = value;
+};
+
+// A controllable promise so a test can resolve a cooldown fetch at a chosen
+// moment — used to cover the "request in flight, context changes, stale
+// response lands" race.
+const createDeferred = () => {
+  let resolve!: (value: unknown[]) => void;
+  const promise = new Promise<unknown[]>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+};
+
 describe('AuthFilesPage quota cooldown derived badge', () => {
   beforeEach(() => {
     mocks.list.mockReset();
@@ -282,6 +298,7 @@ describe('AuthFilesPage quota cooldown derived badge', () => {
     mocks.listCodexInspectionRuns.mockReset();
     mocks.getCodexInspectionRun.mockReset();
     mocks.connectionStatus = 'connected';
+    mocks.managementKey = 'test-key';
 
     mocks.list.mockReturnValue([
       { name: 'codex-one.json', type: 'codex' },
@@ -372,6 +389,96 @@ describe('AuthFilesPage quota cooldown derived badge', () => {
     await Promise.resolve();
 
     expect(mocks.getActiveQuotaCooldowns).not.toHaveBeenCalled();
+  });
+
+  it('drops a stale cooldown response that resolves after managerServiceBase becomes empty', async () => {
+    const deferred = createDeferred();
+    mocks.getActiveQuotaCooldowns.mockReturnValue(deferred.promise);
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<AuthFilesPage />);
+    });
+
+    // A fetch is in flight against the still-live base.
+    await vi.waitFor(() => {
+      expect(mocks.getActiveQuotaCooldowns).toHaveBeenCalledTimes(1);
+    });
+
+    // Manager Server becomes unavailable; the clear effect empties the map.
+    setManagerServiceBase('');
+    await act(async () => {
+      renderer!.update(<AuthFilesPage />);
+    });
+
+    // The stale response finally lands — it must not resurrect the badge.
+    await act(async () => {
+      deferred.resolve([
+        { authFileName: 'codex-one.json', recoverAtMs: 2_000_000_000_000 },
+      ]);
+      await deferred.promise.catch(() => {});
+    });
+
+    expect(
+      renderer!.root.findByProps({ 'data-auth-card': 'codex-one.json' }).props[
+        'data-quota-cooldown'
+      ]
+    ).toBe('');
+  });
+
+  it('drops a stale cooldown response that resolves after the management key changes', async () => {
+    const first = createDeferred();
+    mocks.getActiveQuotaCooldowns.mockReturnValueOnce(first.promise);
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<AuthFilesPage />);
+    });
+
+    // Initial fetch fired against the original key.
+    await vi.waitFor(() => {
+      expect(mocks.getActiveQuotaCooldowns).toHaveBeenCalledWith(
+        'http://manager.local:18317',
+        'test-key'
+      );
+    });
+
+    // Credentials rotate: a fresh request fires against the new key.
+    setManagementKey('rotated-key');
+    const second = createDeferred();
+    mocks.getActiveQuotaCooldowns.mockReturnValueOnce(second.promise);
+    await act(async () => {
+      renderer!.update(<AuthFilesPage />);
+    });
+
+    expect(mocks.getActiveQuotaCooldowns).toHaveBeenCalledTimes(2);
+
+    // The new-context request resolves first with its own data — applied.
+    await act(async () => {
+      second.resolve([
+        { authFileName: 'codex-two.json', recoverAtMs: 1_700_000_000_000 },
+      ]);
+      await second.promise.catch(() => {});
+    });
+
+    // The stale (old-key) response lands afterwards and must be ignored.
+    await act(async () => {
+      first.resolve([
+        { authFileName: 'codex-one.json', recoverAtMs: 2_000_000_000_000 },
+      ]);
+      await first.promise.catch(() => {});
+    });
+
+    expect(
+      renderer!.root.findByProps({ 'data-auth-card': 'codex-one.json' }).props[
+        'data-quota-cooldown'
+      ]
+    ).toBe('');
+    expect(
+      renderer!.root.findByProps({ 'data-auth-card': 'codex-two.json' }).props[
+        'data-quota-cooldown'
+      ]
+    ).toBe('codex-two.json@1700000000000');
   });
 
   it('ignores mocked Select import for sort/plan dropdowns without crashing', () => {

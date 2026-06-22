@@ -183,6 +183,11 @@ export function AuthFilesPage() {
   const batchActionAnimationRef = useRef<AnimationPlaybackControlsWithThen | null>(null);
   const previousSelectionCountRef = useRef(0);
   const selectionCountRef = useRef(0);
+  // Generation token for in-flight cooldown fetches. Every fetch and every
+  // context reset (Manager Server going unavailable) bump it, so a slow,
+  // superseded response can be detected and dropped — otherwise it would
+  // re-introduce stale badges after the clear effect emptied the map.
+  const cooldownReqId = useRef(0);
 
   const {
     files,
@@ -512,8 +517,15 @@ export function AuthFilesPage() {
   );
 
   const loadQuotaCooldowns = useCallback(async () => {
+    // Stamp this fetch with a fresh id so a later context change (Manager Server
+    // going unavailable or credentials rotating, which re-fire the loader or
+    // trip the clear effect below) can invalidate it. If a newer fetch or reset
+    // has bumped the id by the time we land, we drop the result instead of
+    // writing stale badges back.
+    const id = ++cooldownReqId.current;
     try {
       const items = await usageServiceApi.getActiveQuotaCooldowns(managerServiceBase, managementKey);
+      if (id !== cooldownReqId.current) return;
       const next = new Map<string, QuotaCooldownInfo>();
       for (const item of items) {
         if (!item.authFileName) continue;
@@ -534,6 +546,9 @@ export function AuthFilesPage() {
   // down, or feature availability flips off.
   useEffect(() => {
     if (managerServiceBase) return;
+    // Bump the token to invalidate any in-flight fetch whose request context no
+    // longer applies, then drop the derived state so stale badges don't linger.
+    cooldownReqId.current += 1;
     setQuotaCooldowns((current) => (current.size === 0 ? current : new Map()));
   }, [managerServiceBase]);
 
