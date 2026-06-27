@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { UsagePayload } from '@/features/monitoring/hooks/useUsageData';
 import { normalizeApiBase } from '@/utils/connection';
+import { setCodexQuotaUserAgent } from '@/utils/quota/codexQuotaSettings';
 import type { ModelPrice } from '@/utils/usage';
 
 const USAGE_SERVICE_ERROR_CODES = new Set([
@@ -143,6 +144,10 @@ export interface ManagerExternalUsageServiceConfig {
   serviceBase: string;
 }
 
+export interface ManagerCodexConfig {
+  quotaUserAgent?: string;
+}
+
 export type ManagerCodexInspectionScheduleMode = 'interval' | 'time_points';
 export type ManagerCodexInspectionAutoActionMode = 'none' | 'enable' | 'disable' | 'delete';
 
@@ -170,6 +175,7 @@ export interface ManagerCodexInspectionConfig {
 export interface ManagerConfig {
   cpaConnection: ManagerCPAConnectionConfig;
   collector: ManagerCollectorConfig;
+  codex?: ManagerCodexConfig;
   codexInspection?: ManagerCodexInspectionConfig;
   externalUsageService: ManagerExternalUsageServiceConfig;
   updatedAtMs?: number;
@@ -1338,6 +1344,7 @@ export const usageServiceApi = {
           headers: authHeaders(managementKey),
         }
       );
+      setCodexQuotaUserAgent(response.data.config?.codex?.quotaUserAgent);
       return response.data;
     });
   },
@@ -1356,6 +1363,7 @@ export const usageServiceApi = {
           headers: authHeaders(managementKey),
         }
       );
+      setCodexQuotaUserAgent(response.data.config?.codex?.quotaUserAgent);
       return response.data;
     });
   },

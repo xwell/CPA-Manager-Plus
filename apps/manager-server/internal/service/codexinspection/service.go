@@ -733,13 +733,16 @@ func (s *Service) requestCodexUsageAt(
 	item account,
 	path string,
 ) (apiCallResponse, int, error) {
+	// wham/usage is a GET request and real Codex clients don't send Content-Type,
+	// so we don't add it either to avoid diverging from the real client
+	// fingerprint. User-Agent still uses the inspection's own config (separate
+	// from the quota-lookup UA).
 	headers := map[string]string{
 		"Authorization": "Bearer $TOKEN$",
-		"Content-Type":  "application/json",
 		"User-Agent":    settings.UserAgent,
 	}
 	if strings.TrimSpace(item.AccountID) != "" {
-		headers["Chatgpt-Account-Id"] = strings.TrimSpace(item.AccountID)
+		headers["ChatGPT-Account-Id"] = strings.TrimSpace(item.AccountID)
 	}
 	payload := map[string]any{
 		"authIndex": item.AuthIndex,
